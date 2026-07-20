@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Starter.Identity.Tests;
 
-/// <summary>Doc 10 4.2 refresh-token material: 256-bit random, stored hashed.</summary>
+/// <summary>Refresh-token material: 256-bit random, stored hashed.</summary>
 public class RefreshTokensTests
 {
     [Fact]

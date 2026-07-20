@@ -1,8 +1,8 @@
 namespace Starter.Platform.Events;
 
 /// <summary>
-/// A row of platform.outbox (doc 07 section 3), keyed (event_id, lane) so
-/// each lane drains on its own cursor (LLD 7.1). Delivered rows are purged
+/// A row of platform.outbox, keyed (event_id, lane) so
+/// each lane drains on its own cursor. Delivered rows are purged
 /// after 7 days; poisoned rows are parked (delivered_at stays null) and
 /// wait for the replay tool.
 /// </summary>

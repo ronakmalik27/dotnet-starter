@@ -5,16 +5,16 @@ using Microsoft.Extensions.Options;
 namespace Starter.Identity.GoogleSignIn;
 
 /// <summary>
-/// The server side of the SPA/mobile code-exchange pattern (doc 08 2.1):
+/// The server side of the SPA/mobile code-exchange pattern:
 /// the client ran the authorization request (with PKCE and nonce) and
 /// hands us the authorization code; we redeem it at the issuer's token
 /// endpoint with the confidential client secret plus the client's
-/// code_verifier, so Google enforces PKCE (doc 10 4.5 - code flow only,
+/// code_verifier, so Google enforces PKCE (code flow only,
 /// never implicit). Returns the raw ID token, or null for any refusal -
 /// a non-success status, a network fault, a request timeout, or a
 /// malformed/non-JSON body: which field Google disliked is logged by
 /// Google, not leaked to our caller, and the handler maps every case to
-/// the same generic Unauthorized (CodeRabbit review, PR #264).
+/// the same generic Unauthorized.
 /// </summary>
 internal sealed class GoogleCodeExchanger(
     HttpClient httpClient,

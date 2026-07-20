@@ -5,7 +5,7 @@ using Xunit;
 namespace Starter.Architecture.Tests;
 
 /// <summary>
-/// Doc 13 section 3: one DbContext per module schema. Exactly one context
+/// One DbContext per module schema. Exactly one context
 /// per module assembly, derived from ModuleDbContext, and internal (the
 /// surface rules in <see cref="ModuleSurfaceTests"/> already ban it from
 /// being public; this pins its existence and shape).

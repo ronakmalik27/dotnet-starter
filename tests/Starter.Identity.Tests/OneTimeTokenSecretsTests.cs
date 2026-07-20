@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Starter.Identity.Tests;
 
-/// <summary>Doc 10 4.4 one-time-token material: 256-bit random, stored hashed.</summary>
+/// <summary>One-time-token material: 256-bit random, stored hashed.</summary>
 public class OneTimeTokenSecretsTests
 {
     [Fact]

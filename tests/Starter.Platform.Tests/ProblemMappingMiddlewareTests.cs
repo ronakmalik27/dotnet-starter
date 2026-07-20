@@ -11,9 +11,9 @@ using Xunit;
 namespace Starter.Platform.Tests;
 
 /// <summary>
-/// The exception half of story #17's mapping contract: any unhandled
-/// exception becomes the doc 08 500 envelope with no exception text on the
-/// wire, successful responses pass untouched, and a response already on the
+/// The exception half of the mapping contract: any unhandled exception
+/// becomes a 500 problem envelope with no exception text on the wire,
+/// successful responses pass untouched, and a response already on the
 /// wire is aborted rather than corrupted.
 /// </summary>
 public class ProblemMappingMiddlewareTests
@@ -62,9 +62,9 @@ public class ProblemMappingMiddlewareTests
     [InlineData(StatusCodes.Status431RequestHeaderFieldsTooLarge)]
     public async Task BadHttpRequestException_KeepsTheClientStatus_AsABadRequestProblem(int statusCode)
     {
-        // Issue #105: a request-reading fault is a client error; mapping
-        // it to 500 starter:internal misreports it as a server bug. The
-        // framework's status is preserved and its message stays off the wire.
+        // A request-reading fault is a client error; mapping it to 500
+        // starter:internal misreports it as a server bug. The framework's
+        // status is preserved and its message stays off the wire.
         const string frameworkDetail = "Failed to read parameter \"Payload payload\" from the request body as JSON.";
         var middleware = NewMiddleware(_ => throw new BadHttpRequestException(frameworkDetail, statusCode));
         var context = NewHttpContext();

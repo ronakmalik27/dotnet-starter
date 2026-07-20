@@ -32,7 +32,7 @@ namespace Starter.Platform.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // Forward-only (doc 07 section 14): no down-migrations.
+            // Forward-only: no down-migrations.
         }
     }
 }

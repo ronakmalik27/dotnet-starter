@@ -1,8 +1,8 @@
 namespace Starter.SharedKernel;
 
 /// <summary>
-/// The expected-failure channel for operations that produce a value
-/// (LLD section 1). Create instances through <see cref="Result.Success{T}"/>
+/// The expected-failure channel for operations that produce a value.
+/// Create instances through <see cref="Result.Success{T}"/>
 /// and <see cref="Result.Failure{T}"/> or the implicit conversions.
 /// </summary>
 public sealed class Result<T>

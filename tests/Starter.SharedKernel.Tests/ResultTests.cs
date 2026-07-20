@@ -6,7 +6,7 @@ namespace Starter.SharedKernel.Tests;
 public class ResultTests
 {
     private static readonly Error NotFound =
-        new(ErrorKind.NotFound, "trip.not_found", "Trip does not exist or user is not a member.");
+        new(ErrorKind.NotFound, "sample.not_found", "Sample does not exist or the caller cannot access it.");
 
     [Fact]
     public void Success_NoValue_IsSuccessWithNoError()
@@ -90,7 +90,7 @@ public class ResultTests
     {
         var outcome = Result.Failure(NotFound).Match(() => "ok", error => error.Code);
 
-        outcome.ShouldBe("trip.not_found");
+        outcome.ShouldBe("sample.not_found");
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class ResultTests
     {
         var outcome = Result.Failure<int>(NotFound).Match(value => "ok", error => error.Code);
 
-        outcome.ShouldBe("trip.not_found");
+        outcome.ShouldBe("sample.not_found");
     }
 
     [Fact]

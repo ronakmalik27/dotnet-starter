@@ -9,8 +9,8 @@ using Xunit;
 namespace Starter.Platform.Tests;
 
 /// <summary>
-/// The handler-result-to-stored-response table (LLD 7.2): value results and
-/// plain objects snapshot to (status, JSON body); status-only results store
+/// The handler-result-to-stored-response table: value results and plain
+/// objects snapshot to (status, JSON body); status-only results store
 /// a JSON null body; anything unreplayable under RequireIdempotency throws
 /// so the bug surfaces as a 500 instead of a corrupt replay.
 /// </summary>
@@ -76,7 +76,7 @@ public class IdempotentResponseSnapshotTests
         // The filter checks the status before any body capture, so a
         // non-2xx result passes through even when unsnapshotable.
         var context = new DefaultHttpContext();
-        var error = new Error(ErrorKind.NotFound, "trip.not_found", "gone");
+        var error = new Error(ErrorKind.NotFound, "sample.not_found", "gone");
 
         IdempotentResponseSnapshot.StatusOf(error.ToProblemResult(context))
             .ShouldBe(StatusCodes.Status404NotFound);
@@ -89,9 +89,9 @@ public class IdempotentResponseSnapshotTests
     [Fact]
     public void TypedUnion_SuccessBranch_CapturesTheInnerResult()
     {
-        // Issue #105: Results<T1,T2> implements INestedHttpResult and
-        // neither status nor value interface; without unwrapping, the
-        // success branch misreads as 200 and the capture throws.
+        // Results<T1,T2> implements INestedHttpResult and neither status
+        // nor value interface; without unwrapping, the success branch
+        // misreads as 200 and the capture throws.
         var payload = new Payload(Guid.Parse("019a0000-0000-7000-8000-000000000002"), "thing");
         Results<Created<Payload>, NotFound> union = TypedResults.Created("/things/1", payload);
 
@@ -129,7 +129,7 @@ public class IdempotentResponseSnapshotTests
     [Fact]
     public void ContentResult_Throws()
     {
-        // Issue #170: ContentHttpResult / Utf8ContentHttpResult implement
+        // ContentHttpResult / Utf8ContentHttpResult implement
         // IStatusCodeHttpResult but not IValueHttpResult; without a content
         // case they were captured as (200, empty body) and every replay
         // silently returned nothing instead of throwing.
@@ -145,8 +145,8 @@ public class IdempotentResponseSnapshotTests
     [Fact]
     public void UnmappedResultChannel_Throws()
     {
-        // Handlers return Result (LLD section 1); endpoints must map it to
-        // an IResult before it reaches the filter.
+        // Handlers return Result; endpoints must map it to an IResult
+        // before it reaches the filter.
         Should.Throw<InvalidOperationException>(
             () => IdempotentResponseSnapshot.Capture(Result.Success(), Web));
         Should.Throw<InvalidOperationException>(

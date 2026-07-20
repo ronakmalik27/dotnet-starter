@@ -5,8 +5,8 @@ using Xunit;
 namespace Starter.Platform.Tests;
 
 /// <summary>
-/// The lease arithmetic (LLD 7.1, PL-6) as pure math: no clock, no
-/// database, every branch of send_timeout + min(2^attempts, cap) + jitter.
+/// The lease arithmetic as pure math: no clock, no database, every branch
+/// of send_timeout + min(2^attempts, cap) + jitter.
 /// </summary>
 public class BackoffPolicyTests
 {
@@ -42,7 +42,7 @@ public class BackoffPolicyTests
     [Fact]
     public void Lease_ManyAttempts_CapsAtMaxBackoff()
     {
-        // 2^30 seconds is ~34 years; the LLD caps the term at 300 s.
+        // 2^30 seconds is ~34 years; the policy caps the term at 300 s.
         var lease = BackoffPolicy.Lease(Options, Lane.Fast, attemptsBeforeClaim: 30, jitterSample: 0);
 
         lease.ShouldBe(Options.FastSendTimeout + Options.MaxBackoff);

@@ -7,8 +7,8 @@ using static ArchUnitNET.Fluent.ArchRuleDefinition;
 namespace Starter.Architecture.Tests;
 
 /// <summary>
-/// HLD 3.2 rule 1 at the IL level (doc 12 section 5), per ADR-0011's
-/// composition-mediated call convention: a module depends on NO type of
+/// Enforces the composition-mediated call convention at the IL level:
+/// a module depends on NO type of
 /// another module - not even its Api interface. Cross-module calls are
 /// resolved and invoked by the composition layer (Starter.Api/Starter.App),
 /// which passes results down as parameters; modules never reference one
@@ -40,7 +40,7 @@ public class ModuleBoundaryTests
             .Should().NotDependOnAny(
                 Types().That().ResideInAssembly(targetAssembly))
             .Because($"modules never depend on {targetAssembly.GetName().Name}: cross-module calls "
-                + "are composition-mediated (ADR-0011; HLD 3.2 rule 1; doc 12 section 5)");
+                + "are composition-mediated");
 
         rule.Check(StarterArchitecture.Instance);
     }

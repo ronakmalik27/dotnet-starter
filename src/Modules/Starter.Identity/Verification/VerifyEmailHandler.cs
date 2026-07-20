@@ -7,8 +7,8 @@ using Starter.SharedKernel;
 namespace Starter.Identity.Verification;
 
 /// <summary>
-/// The consuming half of the doc 10 4.7 split: POST /auth/verify-email
-/// marks the token used and the account verified (FR-AUTH-02). Consumption
+/// The consuming half of the verification-status split: POST /auth/verify-email
+/// marks the token used and the account verified. Consumption
 /// is a single guarded UPDATE - two racing submissions of the same token
 /// cannot both win, the loser sees zero rows and gets the same generic
 /// failure as an unknown token. Unknown, used, and expired tokens all
@@ -55,7 +55,7 @@ internal sealed class VerifyEmailHandler(
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         // Consume-if-still-live, atomically: the single-use guarantee
-        // (FR-AUTH-02) lives in this WHERE clause, not in the read above.
+        // lives in this WHERE clause, not in the read above.
         var consumed = await db.OneTimeTokens
             .Where(candidate => candidate.Id == row.Id
                 && candidate.UsedAt == null

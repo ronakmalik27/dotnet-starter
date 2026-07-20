@@ -85,7 +85,7 @@ builder.Services.AddCors(options =>
 // Rate limiting: a global fixed-window limiter partitioned by client IP.
 // The health probes opt out per-endpoint with DisableRateLimiting; a
 // rejection is a bare 429 that the status-code problem mapper wraps in the
-// doc 08 envelope.
+// same problem envelope.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -246,7 +246,7 @@ var app = builder.Build();
 // set (the compose stack sets it, so `docker compose up` boots a ready host
 // with no manual step). Off by default, so a local host can still boot
 // without Postgres for UI-only work. Each module context migrates from its
-// own assembly, so the schemas stay independent (doc 07 section 2).
+// own assembly, so the schemas stay independent.
 if (postgres is not null && builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {
     await using var migrationScope = app.Services.CreateAsyncScope();

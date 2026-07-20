@@ -6,13 +6,13 @@ using System.Text;
 namespace Starter.Identity.Passwords;
 
 /// <summary>
-/// The FR-AUTH-01 offline breached-password check: registrations (and
+/// The offline breached-password check: registrations (and
 /// later password sets) are rejected when the password appears in known
 /// breach corpora. The set ships as an embedded resource - 250k truncated
 /// SHA-1 prefixes built from two SecLists top-1M lists filtered to the
 /// policy length floor (scripts/dev/build-breached-password-set.py
 /// documents sources, license, and regeneration) - so the check is fully
-/// offline: no password material ever leaves the process (doc 10 4.1),
+/// offline: no password material ever leaves the process,
 /// which is the property the HIBP k-anonymity protocol approximates for
 /// callers that cannot hold the set locally.
 /// </summary>

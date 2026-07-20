@@ -7,8 +7,8 @@ namespace Starter.Platform.Tests;
 
 /// <summary>
 /// The AdvisoryLock released-state contract the dispatcher's abort paths
-/// rely on (LLD 7.1, PL-6): with no acquired session, every operation
-/// reports the lock as not held - StillHeldAsync and
+/// rely on: with no acquired session, every operation reports the lock
+/// as not held - StillHeldAsync and
 /// TryRunOnLockSessionAsync return false without touching the database,
 /// and disposal is safe and idempotent. The alive-session half of the
 /// contract runs against real Postgres in the integration suite

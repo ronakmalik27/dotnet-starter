@@ -5,29 +5,29 @@ using Starter.SharedKernel;
 namespace Starter.Identity.Verification;
 
 /// <summary>
-/// The FR-AUTH-02 numbers in one place, plus the verify_email token
-/// factory. Tokens are 24-hour single-use (SRS 5.1); the account-level
-/// soft deadline is 7 days from registration (doc 03 flow A5); resend is
-/// limited to 3 per hour per account (doc 10 4.6).
+/// The email-verification numbers in one place, plus the verify_email token
+/// factory. Tokens are 24-hour single-use; the account-level
+/// soft deadline is 7 days from registration; resend is
+/// limited to 3 per hour per account.
 /// </summary>
 internal static class EmailVerificationPolicy
 {
-    /// <summary>Verify-email token TTL (FR-AUTH-02: 24 h).</summary>
+    /// <summary>Verify-email token TTL (24 h).</summary>
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromHours(24);
 
-    /// <summary>The soft write-lock deadline (FR-AUTH-02: 7 days).</summary>
+    /// <summary>The soft write-lock deadline (7 days).</summary>
     public static readonly TimeSpan SoftDeadline = TimeSpan.FromDays(7);
 
-    /// <summary>Verify-email issuances allowed per window (doc 10 4.6: 3/h).</summary>
+    /// <summary>Verify-email issuances allowed per window (3/h).</summary>
     public const int IssuancesPerWindow = 3;
 
-    /// <summary>The resend rate-limit window (doc 10 4.6: per hour).</summary>
+    /// <summary>The resend rate-limit window (per hour).</summary>
     public static readonly TimeSpan IssuanceWindow = TimeSpan.FromHours(1);
 
     /// <summary>
     /// Mints a verify_email one_time_tokens row. The raw token is returned
     /// to the caller for the delivery channel and exists nowhere else -
-    /// the row keeps only the hash (doc 10 4.4).
+    /// the row keeps only the hash.
     /// </summary>
     public static (OneTimeToken Row, string RawToken) IssueVerifyEmailToken(Guid userId, DateTimeOffset now)
     {

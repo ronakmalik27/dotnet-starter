@@ -14,7 +14,7 @@ namespace Starter.Platform.Http;
 /// so the echo survives the problem mapper's <c>Response.Clear()</c>. The
 /// completion log line is skipped for the health probes - they fire on a
 /// timer and would drown the log. Timing rides the SharedKernel Clock, never
-/// Stopwatch (INV-6: time flows through Clock).
+/// Stopwatch (time flows through Clock).
 /// </summary>
 public sealed class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationIdMiddleware> logger)
 {

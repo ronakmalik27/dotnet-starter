@@ -38,7 +38,7 @@ and enforced from day one.
 
 ```
 src/
-  Starter.SharedKernel/   Domain primitives: Result/Error, Money, Clock, Ids (UUIDv7). No dependencies.
+  Starter.SharedKernel/   Domain primitives: Result/Error, Clock, Ids (UUIDv7). No dependencies.
   Starter.Platform/       Cross-cutting infra: persistence, outbox, idempotency, problem mapping,
                           JWT verification, and the security-headers / correlation-id middleware.
   Starter.Api/            HTTP endpoint composition over the module interfaces.

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace Starter.Platform.Http;
 
 /// <summary>
-/// The doc 08 section 1 envelope for framework-generated bare statuses:
+/// The problem envelope for framework-generated bare statuses:
 /// route misses (404), method mismatches (405), content-type rejections
 /// (415), authentication challenges (401), and body-binding failures the
 /// framework answers with an empty 400. The standard StatusCodePages

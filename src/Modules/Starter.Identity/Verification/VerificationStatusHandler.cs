@@ -7,7 +7,7 @@ using Starter.SharedKernel;
 namespace Starter.Identity.Verification;
 
 /// <summary>
-/// The render-only half of the doc 10 4.7 split: GET on a tokenized
+/// The render-only half of the verification-status split: GET on a tokenized
 /// verify-email link reports the token's state and changes NOTHING - a
 /// link-scanner prefetch (Outlook SafeLinks class) that opens every URL in
 /// an email must never burn the token. Pure read by construction: no

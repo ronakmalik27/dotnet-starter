@@ -11,14 +11,14 @@ using NpgsqlTypes;
 namespace Starter.Platform.Http;
 
 /// <summary>
-/// The LLD 7.2 idempotency filter (INV-4). Mutating endpoints opt in via
+/// The idempotency filter. Mutating endpoints opt in via
 /// RequireIdempotency, positioned first in the endpoint filter chain
-/// (LLD section 1: idempotency before authorization and validation).
+/// (idempotency runs before authorization and validation).
 ///
 /// Semantics: lookup (user, key) -> hit replays the stored status and body
 /// with Idempotency-Replayed: true; miss executes the handler and stores
 /// the response in the same transaction as the handler's writes (the
-/// doc 07 table is in the same DB precisely so replay-after-crash is
+/// table is in the same DB precisely so replay-after-crash is
 /// consistent). Same key on a different endpoint is 422 (client bug,
 /// surface it). An in-flight duplicate is 409 with Retry-After 1 s.
 ///
@@ -29,13 +29,13 @@ namespace Starter.Platform.Http;
 /// releases it and leaves the key unconsumed - the retry re-executes.
 /// The lock key is a 64-bit hash; a cross-pair collision yields a spurious,
 /// self-healing 409 (odds ~2^-64 per pair - acceptable at our concurrency,
-/// LLD 7.2's "simpler and honest").
+/// a simpler and honest tradeoff).
 ///
 /// Only 2xx responses are stored: a failed handler rolls the transaction
 /// back, so there is no consistent same-transaction snapshot to store, and
 /// the client may retry the same key after fixing the request. Replays
 /// restore status and body only, never per-response headers such as
-/// Location (LLD 7.2 contract: status, body, plus the replay marker).
+/// Location (the replay contract covers status, body, plus the replay marker).
 /// </summary>
 public sealed class IdempotencyFilter(
     NpgsqlDataSource dataSource,
@@ -54,7 +54,7 @@ public sealed class IdempotencyFilter(
         var cancellationToken = http.RequestAborted;
         var endpointName = EndpointName(http);
 
-        // The filter sits after authentication (LLD section 1); reaching it
+        // The filter sits after authentication; reaching it
         // without a caller identity is a pipeline wiring bug, surfaced as
         // the 401 the missing middleware would have sent.
         var userId = AuthenticatedUserId(http.User);
@@ -94,7 +94,7 @@ public sealed class IdempotencyFilter(
                     new Dictionary<string, string[]>
                     {
                         [IdempotencyHeaders.Key] =
-                            ["This idempotency key was already used for a different endpoint; keys are minted per request (doc 08 section 1)."],
+                            ["This idempotency key was already used for a different endpoint; keys are minted per request."],
                     }));
             }
 
@@ -144,7 +144,7 @@ public sealed class IdempotencyFilter(
         var values = request.Headers[IdempotencyHeaders.Key];
         if (values.Count == 0)
         {
-            error = "The Idempotency-Key header is required on mutating endpoints (doc 08 section 1).";
+            error = "The Idempotency-Key header is required on mutating endpoints.";
             return false;
         }
 
@@ -156,7 +156,7 @@ public sealed class IdempotencyFilter(
 
         if (key.Version != 7)
         {
-            error = "The Idempotency-Key must be a UUIDv7 (doc 08 section 1).";
+            error = "The Idempotency-Key must be a UUIDv7.";
             return false;
         }
 
@@ -166,8 +166,8 @@ public sealed class IdempotencyFilter(
 
     private static string EndpointName(HttpContext http)
     {
-        // The route template, not the concrete path: LLD 7.2 scopes keys to
-        // the endpoint, and "/trips/{id}" is one endpoint across all ids.
+        // The route template, not the concrete path: keys are scoped to
+        // the endpoint, and "/items/{id}" is one endpoint across all ids.
         var pattern = (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText;
         return $"{http.Request.Method} {pattern ?? http.Request.Path.Value ?? "/"}";
     }
@@ -256,13 +256,13 @@ public sealed class IdempotencyFilter(
     private sealed record StoredResponse(string Endpoint, int ResponseCode, string ResponseBody);
 }
 
-/// <summary>Endpoint opt-in for the idempotency filter (LLD 7.2).</summary>
+/// <summary>Endpoint opt-in for the idempotency filter.</summary>
 public static class IdempotencyEndpointExtensions
 {
     /// <summary>
     /// Requires an Idempotency-Key on this endpoint. Call it before any
-    /// other filter so idempotency stays first in the chain (LLD section 1:
-    /// idempotency before authorization and validation).
+    /// other filter so idempotency stays first in the chain (idempotency
+    /// runs before authorization and validation).
     /// </summary>
     public static TBuilder RequireIdempotency<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder =>

@@ -3,7 +3,7 @@ using System.Diagnostics.Metrics;
 namespace Starter.Platform.Http;
 
 /// <summary>
-/// Platform HTTP plumbing observability (story #17 DoD). Rate and duration
+/// Platform HTTP plumbing observability. Rate and duration
 /// of the RED trio ride ASP.NET Core's built-in http.server.request.duration
 /// metric (tagged with status); these counters add the error detail the
 /// built-ins cannot see: idempotency outcomes and exceptions mapped to 500s.

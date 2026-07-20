@@ -10,11 +10,11 @@ using Starter.SharedKernel;
 namespace Starter.Identity.GoogleSignIn;
 
 /// <summary>
-/// FR-AUTH-03 Google sign-in: redeem the client's authorization code,
-/// validate the ID token, then apply the SRS 5.3 / doc 10 4.5 linking
+/// Google sign-in: redeem the client's authorization code,
+/// validate the ID token, then apply the account-linking
 /// decision table and hand the resolved user to the method-agnostic
 /// SessionIssuer - an OIDC login gets exactly the session a password
-/// login gets (FR-AUTH-15 DR). Every code/token problem is one generic
+/// login gets. Every code/token problem is one generic
 /// Unauthorized: which check failed is not the caller's business.
 /// </summary>
 internal sealed class GoogleSignInHandler(
@@ -33,7 +33,7 @@ internal sealed class GoogleSignInHandler(
 
     /// <summary>
     /// The email is held by a VERIFIED account and the request proved no
-    /// live session for it: never silently merge (doc 10 4.5). Google
+    /// live session for it: never silently merge. Google
     /// verified the caller's control of the email, so naming the conflict
     /// leaks nothing the caller does not already own (unlike password
     /// registration's no-enumeration posture). The endpoint layer maps
@@ -62,7 +62,7 @@ internal sealed class GoogleSignInHandler(
         if (!options.Value.IsConfigured)
         {
             // The endpoint layer maps this code to 501
-            // starter:not-implemented (the doc 08 slug for a documented
+            // starter:not-implemented (the slug for a documented
             // capability this host has not enabled).
             return Result.Failure<IssuedTokens>(new Error(
                 ErrorKind.Validation,
@@ -84,7 +84,7 @@ internal sealed class GoogleSignInHandler(
 
         if (!google.EmailVerified)
         {
-            // SRS 5.3 keys every linking rule on a VERIFIED email; an
+            // Linking keys every rule on a VERIFIED email; an
             // unverified Google email proves nothing about the address.
             return Result.Failure<IssuedTokens>(new Error(
                 ErrorKind.Validation,
@@ -133,8 +133,8 @@ internal sealed class GoogleSignInHandler(
         var now = clock.UtcNow;
 
         // One transaction over the whole decision: the linking writes, the
-        // outbox events (which must enqueue inside an open transaction,
-        // doc 07 section 3), and the session row commit or roll back
+        // outbox events (which must enqueue inside an open transaction),
+        // and the session row commit or roll back
         // together. Failure paths dispose without committing.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -170,7 +170,7 @@ internal sealed class GoogleSignInHandler(
                         Id = Ids.NewId(now),
                         Email = google.Email,
                         Status = UserStatus.Active,
-                        // Born verified: Google proved the address (SRS 5.3).
+                        // Born verified: Google proved the address.
                         EmailVerifiedAt = now,
                         TokenVersion = 1,
                         CreatedAt = now,
@@ -187,12 +187,12 @@ internal sealed class GoogleSignInHandler(
             case GoogleLinkAction.ClaimUnverifiedAccount:
                 {
                     // The OIDC-verified email claims the unverified password
-                    // account (SRS 5.3). The password holder never proved this
+                    // account. The password holder never proved this
                     // address, so the password credential is distrusted until
-                    // a reset (FR-AUTH-05) re-establishes it: the row is
+                    // a reset re-establishes it: the row is
                     // disabled, never deleted (auditable, reversible), and the
                     // token-version bump revokes any refresh families it
-                    // opened (doc 10 4.2's mass-revocation lever).
+                    // opened (the mass-revocation lever).
                     var user = userHoldingEmail!;
                     var passwordMethods = await db.AuthMethods
                         .Where(method => method.UserId == user.Id
@@ -221,7 +221,7 @@ internal sealed class GoogleSignInHandler(
                 {
                     // The request carried a live session for the very account
                     // holding the email: the explicit "confirm linking" step
-                    // doc 10 4.5 demands. The password stays enabled - the
+                    // this demands. The password stays enabled - the
                     // account was verified, nothing is distrusted.
                     var user = userHoldingEmail!;
                     AttachGoogleMethod(user.Id, google.Subject, now);

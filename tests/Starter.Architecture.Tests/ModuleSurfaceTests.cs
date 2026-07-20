@@ -4,7 +4,7 @@ using Xunit;
 namespace Starter.Architecture.Tests;
 
 /// <summary>
-/// LLD section 1 / ADR-0011: each module exposes exactly its
+/// Each module exposes exactly its
 /// I&lt;Module&gt;Api interface plus its &lt;Module&gt;Module bootstrap
 /// class; everything else is internal. Enforced by enumerating exported
 /// types, so a public type added anywhere in a module fails the build
@@ -27,8 +27,8 @@ public class ModuleSurfaceTests
     [MemberData(nameof(StarterModules.ApiTypeData), MemberType = typeof(StarterModules))]
     public void ModuleApi_Name_FollowsTheIModuleApiConvention(Type apiInterface)
     {
-        // Starter.<Module> assembly exposes I<Module>Api (doc 13 section 5:
-        // grep-ability across docs, schema, code, and events).
+        // Starter.<Module> assembly exposes I<Module>Api (grep-ability
+        // across docs, schema, code, and events).
         var moduleName = ModuleNameOf(apiInterface);
 
         apiInterface.Name.ShouldBe($"I{moduleName}Api");
@@ -38,7 +38,7 @@ public class ModuleSurfaceTests
     [MemberData(nameof(StarterModules.ApiTypeData), MemberType = typeof(StarterModules))]
     public void ModuleBootstrapClass_IsStatic_AndFollowsTheModuleConvention(Type apiInterface)
     {
-        // ADR-0011: the bootstrap class is Starter.<Module>.<Module>Module,
+        // The bootstrap class is Starter.<Module>.<Module>Module,
         // static (an extension holder), the module's one registration entry.
         var moduleClass = ModuleClassOf(apiInterface);
 
@@ -55,7 +55,7 @@ public class ModuleSurfaceTests
         var moduleClass = apiInterface.Assembly.GetType($"Starter.{moduleName}.{moduleName}Module");
 
         moduleClass.ShouldNotBeNull(
-            $"Starter.{moduleName} must export its {moduleName}Module bootstrap class (ADR-0011)");
+            $"Starter.{moduleName} must export its {moduleName}Module bootstrap class");
         return moduleClass;
     }
 }

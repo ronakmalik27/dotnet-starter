@@ -9,7 +9,7 @@ using Starter.SharedKernel;
 namespace Starter.Identity.Register;
 
 /// <summary>
-/// FR-AUTH-01 registration. The SRS 5.3 no-enumeration contract shapes the
+/// Registration. The no-account-enumeration contract shapes the
 /// whole flow: an existing email returns the exact same success as a fresh
 /// one, the address owner gets a "was this you?" notice via the outbox,
 /// and the Argon2 hash is computed on both paths so response timing does
@@ -44,7 +44,7 @@ internal sealed class RegisterHandler(
         var now = clock.UtcNow;
 
         // Hash before branching: both outcomes pay the same Argon2 cost
-        // (SRS 5.3: timing must not leak account existence).
+        // (timing must not leak account existence).
         var passwordHash = PasswordHasher.Hash(password);
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -58,7 +58,7 @@ internal sealed class RegisterHandler(
             // EnqueueAsync only stages the event/outbox rows on the
             // context; without SaveChangesAsync here the "was this you?"
             // notice never reaches the database and the commit below
-            // would persist nothing (Gemini review, PR #257).
+            // would persist nothing.
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return Result.Success();
@@ -70,11 +70,9 @@ internal sealed class RegisterHandler(
             Email = email,
             Status = UserStatus.Active,
             TokenVersion = 1,
-            // The FR-AUTH-02 7-day soft deadline starts at registration
-            // for every account. For organic signups it is moot until
-            // verification (they cannot write at all); for invite-joined
-            // accounts it is the write-lock date (doc 03 flow A5). One
-            // rule, no invited/organic branch to get wrong.
+            // The 7-day soft deadline starts at registration, uniformly
+            // for every account. Until verification, the account cannot
+            // write at all - one rule, no separate branch to get wrong.
             VerificationDeadlineAt = now + EmailVerificationPolicy.SoftDeadline,
             CreatedAt = now,
         };
@@ -89,9 +87,9 @@ internal sealed class RegisterHandler(
         });
 
         // The first verify_email token issues with the account
-        // (FR-AUTH-02: 24 h, single-use). The raw token is dropped for
-        // now: email dispatch is the notifications story's channel (#19),
-        // and the doc 09 privacy rule keeps raw secrets off the
+        // (24 h, single-use). The raw token is dropped for
+        // now: email dispatch is the notifications story's channel,
+        // and the privacy rule keeps raw secrets off the
         // domain_events spine - the dispatch hook slots in here, where
         // the raw token is still in hand, when that story lands. Until
         // then the resend endpoint is the way to mint a fresh one.

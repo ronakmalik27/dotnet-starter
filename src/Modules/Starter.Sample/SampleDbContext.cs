@@ -5,8 +5,8 @@ using Starter.Platform.Data;
 namespace Starter.Sample;
 
 /// <summary>
-/// The Sample module's context: owns the sample schema and nothing else
-/// (doc 07 section 2). The schema binding, the app-side UUIDv7 key
+/// The Sample module's context: owns the sample schema and nothing else.
+/// The schema binding, the app-side UUIDv7 key
 /// convention, and snake_case naming come from ModuleDbContext /
 /// StarterDbContextOptions, so a module context stays this small. Exactly
 /// one ModuleDbContext per module assembly, named &lt;Module&gt;DbContext

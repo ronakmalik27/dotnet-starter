@@ -4,8 +4,7 @@ namespace Starter.Platform.Http;
 
 /// <summary>
 /// Source-generated log messages for the idempotency filter (CA1848).
-/// Keys and endpoints only - never request bodies or stored responses
-/// (doc 10 section 7.5 denylist).
+/// Keys and endpoints only - never request bodies or stored responses.
 /// </summary>
 internal static partial class IdempotencyLog
 {
@@ -18,6 +17,6 @@ internal static partial class IdempotencyLog
     [LoggerMessage(Level = LogLevel.Warning, Message = "Idempotency key {Key} reused across endpoints: stored for {StoredEndpoint}, sent to {RequestEndpoint}; 422.")]
     public static partial void EndpointMismatch(ILogger logger, Guid key, string storedEndpoint, string requestEndpoint);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Idempotency filter reached without an authenticated caller on {Endpoint}; authentication must run before it (LLD section 1).")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Idempotency filter reached without an authenticated caller on {Endpoint}; authentication must run before it.")]
     public static partial void MissingUser(ILogger logger, string endpoint);
 }

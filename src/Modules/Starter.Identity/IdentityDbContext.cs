@@ -6,9 +6,9 @@ namespace Starter.Identity;
 
 /// <summary>
 /// The identity module's context: owns the identity schema and
-/// nothing else (doc 07 section 2). The schema binding and conventions
-/// come from ModuleDbContext; users, auth_methods, and sessions landed
-/// with #33 and one_time_tokens with #34 (doc 07 section 4) - the
+/// nothing else. The schema binding and conventions
+/// come from ModuleDbContext; users, auth_methods, sessions, and
+/// one_time_tokens landed first - the
 /// remaining identity tables join with their stories.
 /// </summary>
 internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> options)
@@ -29,7 +29,7 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
         base.OnModelCreating(modelBuilder);
 
         // citext: case-insensitive email uniqueness in the column type
-        // itself (doc 07 section 4), so no lookup can forget to normalize.
+        // itself, so no lookup can forget to normalize.
         modelBuilder.HasPostgresExtension("citext");
 
         modelBuilder.Entity<User>(user =>
@@ -42,9 +42,9 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
         modelBuilder.Entity<AuthMethod>(method =>
         {
             method.Property(m => m.Kind).HasMaxLength(32);
-            // The FR-AUTH-15 list shape: one row per method, at most one
+            // The list shape: one row per method, at most one
             // of each kind per user, and an OIDC subject binds to exactly
-            // one account (doc 07 section 4).
+            // one account.
             method.HasIndex(m => new { m.UserId, m.Kind }).IsUnique();
             method.HasIndex(m => new { m.Kind, m.ProviderSubject }).IsUnique();
             // Google subs are numeric strings today, but the OIDC spec caps
@@ -59,11 +59,11 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
             token.Property(t => t.Purpose).HasMaxLength(32);
             token.Property(t => t.TokenHash).HasMaxLength(64);
             token.Property(t => t.Payload).HasColumnType("jsonb");
-            // The redemption lookup (doc 07 section 12: "(token_hash)
+            // The redemption lookup ("(token_hash)
             // where used_at is null"); unique within the live set so two
             // live tokens can never share a hash.
             token.HasIndex(t => t.TokenHash).IsUnique().HasFilter("used_at IS NULL");
-            // The doc 10 4.6 resend guard counts an account's recent
+            // The resend guard counts an account's recent
             // issuances per purpose; this is that query's index.
             token.HasIndex(t => new { t.UserId, t.Purpose, t.CreatedAt });
             token.HasOne<User>().WithMany().HasForeignKey(t => t.UserId);
@@ -71,7 +71,7 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
 
         modelBuilder.Entity<Session>(session =>
         {
-            // The refresh lookup path (doc 07 section 12: every query has
+            // The refresh lookup path (every query has
             // its index): token hash to row, then family for revocation.
             session.HasIndex(s => s.RefreshHash).IsUnique();
             session.HasIndex(s => s.FamilyId);

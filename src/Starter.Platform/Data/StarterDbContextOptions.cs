@@ -5,7 +5,7 @@ namespace Starter.Platform.Data;
 /// <summary>
 /// The one place DbContext options are composed, so every context - app
 /// runtime, design time, and tests - gets identical behavior: Npgsql,
-/// snake_case names (doc 07 section 1), and a per-schema migrations
+/// snake_case names, and a per-schema migrations
 /// history table (each module owns its schema end to end).
 /// </summary>
 public static class StarterDbContextOptions

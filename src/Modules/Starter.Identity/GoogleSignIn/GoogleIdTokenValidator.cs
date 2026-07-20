@@ -9,7 +9,7 @@ namespace Starter.Identity.GoogleSignIn;
 /// Microsoft.IdentityModel handler against the issuer's published JWKS:
 /// signature (RS256 only), issuer, audience (our client id), lifetime -
 /// and then the nonce, which must echo the value the client bound into
-/// its authorization request (doc 10 4.5: code flow + PKCE + nonce).
+/// its authorization request (code flow + PKCE + nonce).
 /// Returns null for anything invalid; the caller answers one generic
 /// failure for all of them.
 /// </summary>
@@ -83,7 +83,7 @@ internal sealed class GoogleIdTokenValidator(
     /// <summary>
     /// Google serializes email_verified as a JSON bool; tolerate the
     /// string form some issuers emit. Anything else counts as unverified -
-    /// the fail-closed reading (SRS 5.3 keys linking on VERIFIED email).
+    /// the fail-closed reading (linking keys on VERIFIED email).
     /// </summary>
     private static bool EmailVerified(IDictionary<string, object> claims) =>
         claims.TryGetValue("email_verified", out var value) && value switch

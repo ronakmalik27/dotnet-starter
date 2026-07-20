@@ -5,7 +5,7 @@ using Xunit;
 namespace Starter.Identity.Tests;
 
 /// <summary>
-/// Doc 10 4.1: Argon2id at the OWASP baseline (m=19456 KiB, t=2, p=1),
+/// Argon2id at the OWASP baseline (m=19456 KiB, t=2, p=1),
 /// PHC-encoded with per-hash parameters, rehash detection when parameters
 /// move.
 /// </summary>
@@ -62,7 +62,7 @@ public class PasswordHasherTests
     public void NeedsRehash_OlderParameters_True()
     {
         // A hash minted under weaker (pre-upgrade) parameters: same shape,
-        // different costs - the rehash-on-login trigger (doc 10 4.1).
+        // different costs - the rehash-on-login trigger.
         var stale = "$argon2id$v=19$m=4096,t=1,p=1$"
             + Convert.ToBase64String(new byte[16]).TrimEnd('=')
             + "$"
@@ -80,7 +80,7 @@ public class PasswordHasherTests
     [Fact]
     public void VerifyDummy_NeverThrows()
     {
-        // The timing-equalizer for unknown accounts (SRS 5.3): it must
+        // The timing-equalizer for unknown accounts: it must
         // burn cost and stay silent.
         Should.NotThrow(() => PasswordHasher.VerifyDummy("any password"));
     }

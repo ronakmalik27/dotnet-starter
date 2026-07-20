@@ -6,10 +6,9 @@ namespace Starter.Sample.CreateNote;
 
 /// <summary>
 /// Creates a note and emits sample.note.created on the outbox in the same
-/// transaction as the row (doc 07 section 3 write rule; INV-8): the state,
-/// the domain_events spine row, and any outbox rows commit or roll back
-/// together. This is the worked example of the transactional-outbox
-/// pattern for a new module.
+/// transaction as the row: the state, the domain_events spine row, and
+/// any outbox rows commit or roll back together. This is the worked
+/// example of the transactional-outbox pattern for a new module.
 /// </summary>
 internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox, Clock clock)
 {

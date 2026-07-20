@@ -6,8 +6,8 @@ namespace Starter.Platform.Http;
 
 /// <summary>
 /// Turns a handler's return value into the (status, jsonb body) pair the
-/// idempotency store persists (LLD 7.2). Supported shapes are the ones a
-/// doc 08 mutation endpoint may produce: JSON value results (Ok, Created),
+/// idempotency store persists. Supported shapes are the ones a
+/// mutation endpoint may produce: JSON value results (Ok, Created),
 /// status-only results (NoContent), typed unions (Results&lt;T1,..,Tn&gt;,
 /// classified by the concrete result they carry), and plain objects
 /// (implicit 200). Anything else under RequireIdempotency is a developer
@@ -38,10 +38,10 @@ internal static class IdempotentResponseSnapshot
                 return (StatusCodes.Status200OK, ReplayedIdempotentResult.EmptyBody);
             case string:
                 throw new InvalidOperationException(
-                    "String results are written as text/plain and cannot be replayed as JSON; return a typed JSON result (doc 08 section 1: JSON everywhere).");
+                    "String results are written as text/plain and cannot be replayed as JSON; return a typed JSON result (JSON everywhere).");
             case Result:
                 throw new InvalidOperationException(
-                    "Map Result failures to an IResult (ErrorResultExtensions.ToProblemResult) before returning (LLD section 1).");
+                    "Map Result failures to an IResult (ErrorResultExtensions.ToProblemResult) before returning.");
             case IValueHttpResult valueResult:
                 {
                     var status = (result as IStatusCodeHttpResult)?.StatusCode ?? StatusCodes.Status200OK;
@@ -55,9 +55,9 @@ internal static class IdempotentResponseSnapshot
                 // Must precede IStatusCodeHttpResult: content results
                 // (TypedResults.Text, Results.Content) implement the status
                 // interface too and would otherwise be captured as an empty
-                // body and silently replayed (issue #170).
+                // body and silently replayed.
                 throw new InvalidOperationException(
-                    "Content results are written as text/csv/html and cannot be replayed as JSON; return a typed JSON result (doc 08 section 1: JSON everywhere).");
+                    "Content results are written as text/csv/html and cannot be replayed as JSON; return a typed JSON result (JSON everywhere).");
             case IStatusCodeHttpResult statusOnly:
                 return (statusOnly.StatusCode ?? StatusCodes.Status200OK, ReplayedIdempotentResult.EmptyBody);
             case IResult:
@@ -67,7 +67,7 @@ internal static class IdempotentResponseSnapshot
                 if (IsResultOfT(result.GetType()))
                 {
                     throw new InvalidOperationException(
-                        "Map Result<T> to an IResult (success value or ErrorResultExtensions.ToProblemResult) before returning (LLD section 1).");
+                        "Map Result<T> to an IResult (success value or ErrorResultExtensions.ToProblemResult) before returning.");
                 }
 
                 return (

@@ -6,20 +6,19 @@ using Npgsql;
 namespace Starter.Platform.Events;
 
 /// <summary>
-/// The two-lane outbox dispatcher (LLD 7.1). One leader runs across ACA
-/// revisions via a Postgres advisory lock; each lane drains on its own
+/// The two-lane outbox dispatcher. One leader runs across
+/// multiple instances via a Postgres advisory lock; each lane drains on its own
 /// cursor so a stalled slow-lane provider never head-of-line-blocks fast
-/// dispatch (NFR-G-02). Claim-commit-send-mark: the claim transaction
+/// dispatch. Claim-commit-send-mark: the claim transaction
 /// durably arms an initial lease for every claimed row, and immediately
 /// before each send the row's lease is re-armed on the leadership session
-/// itself (PL-6): the re-arm succeeding there proves the lock was held
+/// itself: the re-arm succeeding there proves the lock was held
 /// when the lease became durable, so a row whose send may still be in
 /// flight can never be re-claimed by a failed-over leader. A re-arm
 /// failure means leadership is gone; the batch remainder aborts unsent.
 /// Sends run outside any transaction. A crash between send and mark
 /// leaves delivered_at null, so the row redelivers after its lease
-/// elapses: at-least-once, consumers dedupe by event id (doc 09
-/// section 1).
+/// elapses: at-least-once, consumers dedupe by event id.
 /// </summary>
 public sealed class OutboxDispatcher : BackgroundService
 {
@@ -91,9 +90,9 @@ public sealed class OutboxDispatcher : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                // SIGTERM (HLD 2.1): stop claiming; the await-using releases
+                // SIGTERM: stop claiming; the await-using releases
                 // the advisory lock before the host finishes shutdown, so
-                // the new revision's dispatcher can take over immediately.
+                // the new deployment's dispatcher can take over immediately.
                 return;
             }
             catch (Exception exception)
@@ -137,7 +136,7 @@ public sealed class OutboxDispatcher : BackgroundService
         {
             while (await timer.WaitForNextTickAsync(lockLost.Token))
             {
-                // Re-check the lock between batches (LLD 7.1): abort on loss.
+                // Re-check the lock between batches: abort on loss.
                 if (!await leadership.StillHeldAsync(lockLost.Token))
                 {
                     await lockLost.CancelAsync();
@@ -164,7 +163,7 @@ public sealed class OutboxDispatcher : BackgroundService
                     {
                         // The lease could not be armed on the leadership
                         // session: a new leader owns the queue. Abort the
-                        // batch remainder unsent (PL-6).
+                        // batch remainder unsent.
                         await lockLost.CancelAsync();
                         throw new InvalidOperationException("Advisory lock lost mid-batch; a new leader owns the queue.");
                     }
@@ -205,11 +204,11 @@ public sealed class OutboxDispatcher : BackgroundService
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         // Claim under FOR UPDATE SKIP LOCKED; the joined domain event makes
-        // the LLD "load domain_event" step part of the same round trip.
+        // the "load domain_event" step part of the same round trip.
         const string claimSql = """
             select o.event_id, o.attempts, o.enqueued_at,
                    d.occurred_at, d.module, d.event_type, d.entity_id,
-                   d.trip_id, d.actor_user_id, d.payload
+                   d.actor_user_id, d.payload
             from platform.outbox o
             join platform.domain_events d on d.id = o.event_id
             where o.lane = $1 and o.delivered_at is null
@@ -240,9 +239,8 @@ public sealed class OutboxDispatcher : BackgroundService
                         Module = reader.GetString(4),
                         EventType = reader.GetString(5),
                         EntityId = reader.GetGuid(6),
-                        TripId = reader.IsDBNull(7) ? null : reader.GetGuid(7),
-                        ActorUserId = reader.IsDBNull(8) ? null : reader.GetGuid(8),
-                        Payload = reader.GetString(9),
+                        ActorUserId = reader.IsDBNull(7) ? null : reader.GetGuid(7),
+                        Payload = reader.GetString(8),
                     }));
             }
         }
@@ -251,7 +249,7 @@ public sealed class OutboxDispatcher : BackgroundService
         {
             if (row.Attempts >= _options.MaxAttempts)
             {
-                // Poison parking (LLD 7.1): attempts would exceed the cap;
+                // Poison parking: attempts would exceed the cap;
                 // park the row (delivered_at stays null) for the replay tool.
                 await using var poison = new NpgsqlCommand(
                     "update platform.outbox set attempts = attempts + 1, poisoned_at = now() where event_id = $1 and lane = $2",
@@ -268,7 +266,7 @@ public sealed class OutboxDispatcher : BackgroundService
             // The initial lease, durable inside the claim transaction: it
             // covers a leader that dies right after claiming. The lease
             // that guards each row's actual send window is re-armed per
-            // row in RearmLeaseAsync (PL-6).
+            // row in RearmLeaseAsync.
             var lease = BackoffPolicy.Lease(_options, lane, row.Attempts, Random.Shared.NextDouble());
             await using var arm = new NpgsqlCommand(
                 "update platform.outbox set attempts = attempts + 1, next_attempt_at = now() + make_interval(secs => $3) where event_id = $1 and lane = $2",
@@ -291,7 +289,7 @@ public sealed class OutboxDispatcher : BackgroundService
 
     /// <summary>
     /// Re-arms the row's lease immediately before its send, on the
-    /// advisory lock's own session (PL-6): success proves the lock was
+    /// advisory lock's own session: success proves the lock was
     /// held when the lease became durable, so the send window that
     /// follows can never overlap a re-claim by a failed-over leader. The
     /// claim-time lease only covers a batch's early rows; this per-row
@@ -351,14 +349,14 @@ public sealed class OutboxDispatcher : BackgroundService
         if (!_consumers.TryGetValue(lane, out var byType)
             || !byType.TryGetValue(domainEvent.EventType, out var consumers))
         {
-            // Consumer-registration skew (LLD 7.1): the row was enqueued
+            // Consumer-registration skew: the row was enqueued
             // when this (lane, event_type) had a consumer, but this
-            // revision's registry no longer routes it (removed, renamed,
+            // deployment's registry no longer routes it (removed, renamed,
             // or re-laned during a deploy overlap). Treat it exactly like
             // a failed send - never mark it delivered: the pre-send
             // re-arm already set the retry backoff, so the row redelivers
             // when its lease elapses and poisons at MaxAttempts like any
-            // other persistent failure (doc 09 section 1: no lost
+            // other persistent failure (no lost
             // updates, no ghost events).
             _metrics.Unroutable(lane);
             OutboxLog.Unroutable(_logger, domainEvent.Id, LaneName(lane), domainEvent.EventType);
@@ -367,7 +365,7 @@ public sealed class OutboxDispatcher : BackgroundService
 
         try
         {
-            // The send timeout bounds the whole lane send (PL-6: the
+            // The send timeout bounds the whole lane send (the
             // pre-send re-arm anchored the lease at this send, so no
             // re-claim races it).
             using var sendWindow = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -388,7 +386,7 @@ public sealed class OutboxDispatcher : BackgroundService
         }
         catch (Exception exception)
         {
-            // Nothing to do (LLD 7.1): the pre-send re-arm already set the
+            // Nothing to do here: the pre-send re-arm already set the
             // retry backoff; the row redelivers when its lease elapses.
             _metrics.SendFailed(lane);
             OutboxLog.SendFailed(_logger, exception, domainEvent.Id, LaneName(lane), domainEvent.EventType);
@@ -410,8 +408,8 @@ public sealed class OutboxDispatcher : BackgroundService
                 // A failed-over leader touched the row after this send
                 // started: poisoned it (never stamp delivered_at over
                 // poisoned_at - a both-set row would be excluded from
-                // dispatch AND from the purge forever, violating doc 07
-                // section 3's parked-row invariant), already marked it
+                // dispatch AND from the purge forever, violating the
+                // parked-row invariant), already marked it
                 // delivered (a stale re-mark would shift the timestamp and
                 // double-count the dispatch metric), or the purge removed
                 // it. The send itself happened; at-least-once already owns

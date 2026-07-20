@@ -15,12 +15,12 @@ namespace Starter.Platform.Migrations
                 name: "platform");
 
             // domain_events is partitioned monthly by occurred_at and kept
-            // forever (doc 07 section 3, INV-8). EF cannot express PARTITION
-            // BY, so the parent, its partitions, and its doc 07 section 12
+            // forever. EF cannot express PARTITION
+            // BY, so the parent, its partitions, and its
             // indexes are raw SQL; the entity mapping is marked
             // ExcludeFromMigrations. Partitions cover a 2026-2027 window plus
             // a DEFAULT catch-all so no insert can ever fail; extending the
-            // monthlies is an ops-calendar item (doc 11 section 10) before
+            // monthlies is an ops-calendar item before
             // 2028.
             migrationBuilder.Sql("""
                 create table platform.domain_events (
@@ -29,7 +29,6 @@ namespace Starter.Platform.Migrations
                   module         text        not null,
                   event_type     text        not null,
                   entity_id      uuid        not null,
-                  trip_id        uuid        null,
                   actor_user_id  uuid        null,
                   payload        jsonb       not null,
                   primary key (id, occurred_at)
@@ -49,9 +48,9 @@ namespace Starter.Platform.Migrations
                 create table platform.domain_events_default
                   partition of platform.domain_events default;
 
-                -- Doc 07 section 12: replay, per-trip timelines, AI extraction.
-                create index ix_domain_events_trip_id_occurred_at
-                  on platform.domain_events (trip_id, occurred_at);
+                -- Query paths: an entity's timeline, and all events of a type.
+                create index ix_domain_events_entity_id_occurred_at
+                  on platform.domain_events (entity_id, occurred_at);
                 create index ix_domain_events_event_type_occurred_at
                   on platform.domain_events (event_type, occurred_at);
                 """);
@@ -86,7 +85,7 @@ namespace Starter.Platform.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // Forward-only (doc 07 section 14): no down-migrations.
+            // Forward-only: no down-migrations.
         }
     }
 }

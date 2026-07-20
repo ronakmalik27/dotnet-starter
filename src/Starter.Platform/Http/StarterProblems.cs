@@ -8,23 +8,23 @@ namespace Starter.Platform.Http;
 
 /// <summary>
 /// The one place SharedKernel failures and platform conditions become the
-/// doc 08 section 1 problem+json envelope: RFC 9457 body with a stable
+/// problem+json envelope: RFC 9457 body with a stable
 /// starter:* type slug, plus traceId and (for validation) the field-to-
 /// messages errors map. The ErrorKind-to-status table is the contract the
 /// ErrorKind XML docs promise; both change together or not at all.
 /// </summary>
 public static class StarterProblems
 {
-    /// <summary>The problem+json errors extension key (doc 08 section 1).</summary>
+    /// <summary>The problem+json errors extension key.</summary>
     public const string ErrorsExtension = "errors";
 
-    /// <summary>The problem+json traceId extension key (doc 08 section 1).</summary>
+    /// <summary>The problem+json traceId extension key.</summary>
     public const string TraceIdExtension = "traceId";
 
     /// <summary>
     /// The problem+json serverTime extension key, present on every 401:
     /// a clock-skewed client that rejects "expired" JWTs reads the server
-    /// time from the body and compensates (SRS 5.3 edge case).
+    /// time from the body and compensates.
     /// </summary>
     public const string ServerTimeExtension = "serverTime";
 
@@ -36,7 +36,7 @@ public static class StarterProblems
 
     private const string RateLimitedTitle = "Too many requests.";
 
-    /// <summary>Maps an expected failure to its doc 08 envelope.</summary>
+    /// <summary>Maps an expected failure to its problem envelope.</summary>
     public static ProblemDetails From(Error error, HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(error);
@@ -46,7 +46,7 @@ public static class StarterProblems
         return Create(httpContext, status, type, title, error.Message);
     }
 
-    /// <summary>422 with the field-to-messages errors map (doc 08 section 1).</summary>
+    /// <summary>422 with the field-to-messages errors map.</summary>
     public static ProblemDetails Validation(
         HttpContext httpContext,
         IReadOnlyDictionary<string, string[]> errors)
@@ -64,7 +64,7 @@ public static class StarterProblems
         return problem;
     }
 
-    /// <summary>409 for a same-key request whose first attempt is still executing (LLD 7.2).</summary>
+    /// <summary>409 for a same-key request whose first attempt is still executing.</summary>
     public static ProblemDetails IdempotencyInFlight(HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
@@ -92,8 +92,8 @@ public static class StarterProblems
 
     /// <summary>
     /// 403 for an authenticated caller whose email is not verified hitting
-    /// a `vrf`-gated endpoint (FR-AUTH-02; doc 10 section 5). The detail
-    /// is the doc 03 A5 disabled-with-reason line.
+    /// a `vrf`-gated endpoint. The detail
+    /// is the disabled-with-reason line.
     /// </summary>
     public static ProblemDetails VerificationRequired(HttpContext httpContext)
     {
@@ -110,7 +110,7 @@ public static class StarterProblems
     /// <summary>
     /// 500 for a bug. The body carries only the slug and traceId; the
     /// exception itself stays in the server logs (no raw exception ever
-    /// reaches a client - story #17 acceptance criteria).
+    /// reaches a client).
     /// </summary>
     public static ProblemDetails Internal(HttpContext httpContext)
     {
@@ -128,7 +128,7 @@ public static class StarterProblems
     /// A client fault raised while reading the request (malformed JSON
     /// body, oversized payload, ..): the framework's status is preserved
     /// (400/413/431), the fixed text never echoes payload or framework
-    /// internals (doc 10 section 7.5).
+    /// internals.
     /// </summary>
     public static ProblemDetails BadRequest(HttpContext httpContext, int statusCode)
     {
@@ -143,10 +143,10 @@ public static class StarterProblems
     }
 
     /// <summary>
-    /// The doc 08 envelope for a framework-generated bare status (route
+    /// The problem envelope for a framework-generated bare status (route
     /// 404/405, content negotiation 415, auth 401, binding 400): every
-    /// error response wears the envelope, not only app-thrown ones
-    /// (doc 08 section 1). Statuses are preserved verbatim; unlisted 4xx
+    /// error response wears the envelope, not only app-thrown ones.
+    /// Statuses are preserved verbatim; unlisted 4xx
     /// fall back to the bad-request slug, 5xx to the internal slug.
     /// </summary>
     public static ProblemDetails ForStatus(HttpContext httpContext, int statusCode)
@@ -185,7 +185,7 @@ public static class StarterProblems
                 StatusCodes.Status404NotFound,
                 ProblemTypes.NotFound,
                 NotFoundTitle),
-            // ErrorKind.Conflict covers both doc 08 409 conditions; the
+            // ErrorKind.Conflict covers both 409 conditions; the
             // error code's scope prefix picks the slug (ErrorKind XML docs).
             ErrorKind.Conflict when error.Code.StartsWith("idempotency.", StringComparison.Ordinal) => (
                 StatusCodes.Status409Conflict,
@@ -206,7 +206,7 @@ public static class StarterProblems
             _ => throw new ArgumentOutOfRangeException(
                 nameof(error),
                 error.Kind,
-                "ErrorKind has no doc 08 problem mapping; add the kind and its slug together (ErrorKind XML docs)."),
+                "ErrorKind has no problem mapping; add the kind and its slug together (ErrorKind XML docs)."),
         };
 
     private static ProblemDetails Create(
@@ -227,7 +227,7 @@ public static class StarterProblems
             Activity.Current?.Id ?? httpContext.TraceIdentifier;
         if (status == StatusCodes.Status401Unauthorized)
         {
-            // SRS 5.3: server time in every 401 body so a clock-skewed
+            // Server time in every 401 body so a clock-skewed
             // client can compensate. Resolved lazily because this mapper
             // is static; the Clock singleton is wired by the composition
             // root, and a bare test HttpContext without services simply

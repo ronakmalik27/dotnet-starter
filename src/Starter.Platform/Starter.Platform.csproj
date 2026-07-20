@@ -1,25 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    Cross-cutting runtime machinery (LLD section 1): outbox, event bus,
-    idempotency filter, auth middleware, redaction, rate limits. The outbox
-    landed with story #16 and the idempotency filter + problem mapping with
-    story #17; the remaining members join with their stories.
+    Cross-cutting runtime machinery: outbox, event bus, idempotency filter,
+    auth middleware, problem mapping, and the request-pipeline middleware.
   -->
   <ItemGroup>
     <InternalsVisibleTo Include="Starter.Integration.Tests" />
     <InternalsVisibleTo Include="Starter.Platform.Tests" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Http/ hosts the LLD section 1 request-pipeline members (idempotency
-         filter, problem+json mapper), which build on ASP.NET Core types. -->
+    <!-- Http/ hosts the request-pipeline members (idempotency filter,
+         problem+json mapper), which build on ASP.NET Core types. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
     <!-- Microsoft.Extensions.Hosting.Abstractions and .Options ride the
          Microsoft.AspNetCore.App framework reference (NU1510). -->
     <PackageReference Include="EFCore.NamingConventions" />
-    <!-- Auth/ hosts the LLD section 1 authentication stage (#33): local
-         ES256 verification per doc 10 4.2. -->
+    <!-- Auth/ hosts the authentication stage: local ES256 verification. -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />

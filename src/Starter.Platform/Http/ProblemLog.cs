@@ -5,7 +5,7 @@ namespace Starter.Platform.Http;
 /// <summary>
 /// Source-generated log messages for the problem mapper (CA1848). The
 /// exception rides the structured Exception slot; request bodies and other
-/// doc 10 section 7.5 denylist material are never logged here.
+/// sensitive denylist material are never logged here.
 /// </summary>
 internal static partial class ProblemLog
 {

@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    The #33 unit layer (doc 12 section 2): password policy and hashing,
-    PHC parameter round-trips, refresh-token material, and access-token
-    claim construction - the rules proven without infrastructure. The
-    session-store semantics live in the integration suite.
+    The unit layer: password policy and hashing, PHC parameter round-trips,
+    refresh-token material, and access-token claim construction - the rules
+    proven without infrastructure. Session-store semantics belong in an
+    integration suite.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -15,7 +15,7 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <!-- AccessTokenIssuerTests uses ECDsaSecurityKey/TokenValidationParameters/
          SecurityAlgorithms directly: an explicit reference, not a ride on
-         JsonWebTokens' transitive graph (CodeRabbit review, PR #257). -->
+         JsonWebTokens' transitive graph. -->
     <PackageReference Include="Microsoft.IdentityModel.Tokens" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Shouldly" />

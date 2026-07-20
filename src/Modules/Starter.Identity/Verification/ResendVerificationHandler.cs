@@ -5,10 +5,10 @@ using Starter.SharedKernel;
 namespace Starter.Identity.Verification;
 
 /// <summary>
-/// POST /auth/verify-email/resend (FR-AUTH-02; doc 03 A5 one-tap resend).
-/// Rate-limited 3/h per account (doc 10 4.6) against the account's own
+/// POST /auth/verify-email/resend (one-tap resend).
+/// Rate-limited 3/h per account against the account's own
 /// verify_email issuance history in one_time_tokens - a handler-level
-/// guard, because the #37 rate-limiter middleware has not landed; the row
+/// guard, because the rate-limiter middleware has not landed; the row
 /// count over the indexed (user_id, purpose, created_at) is the same
 /// sliding-window check the middleware will express later. An
 /// already-verified account resends nothing and still succeeds: a stale
@@ -61,7 +61,7 @@ internal sealed class ResendVerificationHandler(IdentityDbContext db, Clock cloc
 
         // The raw token is dropped here by design, exactly as at
         // registration: the email dispatch channel is the notifications
-        // story's work (#19), and the doc 09 privacy rule keeps raw
+        // story's work, and the privacy rule keeps raw
         // secrets off the domain_events spine. The dispatch hook slots in
         // where the raw token is still in hand - this method and
         // RegisterHandler - when that story lands.

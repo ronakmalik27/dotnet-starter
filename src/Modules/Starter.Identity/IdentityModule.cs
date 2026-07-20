@@ -14,23 +14,21 @@ using Starter.Platform.Data;
 namespace Starter.Identity;
 
 /// <summary>
-/// The Identity module's bootstrap surface (ADR-0011, LLD section 1): the
-/// single public entry the composition root calls. Owns accounts, tokens,
-/// sessions, consent, and profiles; the register / login / refresh slices
-/// landed with #33 and the email-verification slices with #34, the rest
-/// join with stories #35-#40.
+/// The Identity module's bootstrap surface: the single public entry the
+/// composition root calls. Owns accounts, credentials, tokens, sessions,
+/// and email verification.
 /// </summary>
 public static class IdentityModule
 {
     /// <summary>
     /// Registers the module. <paramref name="signingKey"/> is the ES256
-    /// access-token key (doc 10 4.2); the composition root owns where it
-    /// comes from (Key Vault in production, dev-only key locally - doc 10
-    /// section 9) and hands the same key to the platform's JWT
+    /// access-token key; the composition root owns where it
+    /// comes from (a managed secret store in production, a dev-only key locally) and
+    /// hands the same key to the platform's JWT
     /// verification, so issuer and verifier can never disagree.
     /// <paramref name="configuration"/> carries the Auth:Google OIDC
-    /// section (doc 10 4.5; client secret via user-secrets/Key Vault,
-    /// doc 10 section 9); when null or absent, Google sign-in answers 501
+    /// section (client secret via user-secrets or a managed secret store); when null or
+    /// absent, Google sign-in answers 501
     /// and everything else works.
     /// </summary>
     public static IServiceCollection AddIdentityModule(
@@ -47,7 +45,7 @@ public static class IdentityModule
         services.AddSingleton<BreachedPasswordSet>();
         services.AddSingleton<PasswordPolicy>();
 
-        // Google OIDC (#35): discovery metadata is a caching singleton;
+        // Google OIDC: discovery metadata is a caching singleton;
         // the code exchange rides a typed HttpClient (factory-managed
         // handler lifetimes).
         if (configuration is not null)

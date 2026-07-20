@@ -2,8 +2,8 @@ namespace Starter.SharedKernel;
 
 /// <summary>
 /// The expected-failure channel for operations with no return value
-/// (LLD section 1: handlers return Result; exceptions are for bugs, not
-/// flow). Also carries the factories for <see cref="Result{T}"/>.
+/// (handlers return Result; exceptions are for bugs, not flow). Also
+/// carries the factories for <see cref="Result{T}"/>.
 /// </summary>
 public sealed class Result
 {

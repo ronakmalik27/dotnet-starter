@@ -4,7 +4,7 @@ using System.Text;
 namespace Starter.Identity.Tokens;
 
 /// <summary>
-/// Refresh-token material (doc 10 4.2): 256-bit random, transported as
+/// Refresh-token material: 256-bit random, transported as
 /// unpadded base64url, stored only as a SHA-256 hex digest. SHA-256
 /// without salt or stretching is the industry norm for high-entropy
 /// tokens (GitHub, Stripe API keys): 2^256 preimage space needs no KDF,

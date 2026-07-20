@@ -10,7 +10,7 @@ namespace Starter.Api.Sample;
 /// HTTP composition for the Sample module's create / get-by-id slices: the
 /// worked example of how a module's endpoints hang off the versioned route
 /// group. Business rules live behind <see cref="ISampleApi"/>; this layer
-/// never touches the module's internals (ADR-0011). It maps onto a route
+/// never touches the module's internals. It maps onto a route
 /// group the composition root has already bound to an API version, so the
 /// full path is <c>/api/v1/sample/notes</c>.
 /// </summary>

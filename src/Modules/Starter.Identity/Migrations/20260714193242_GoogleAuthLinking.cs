@@ -11,14 +11,14 @@ namespace Starter.Identity.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Preflight guard (CodeRabbit review, PR #264): narrowing to
+            // Preflight guard: narrowing to
             // varchar(255) would otherwise fail with an opaque Postgres
             // truncation error on any row already longer than that. This
             // is a pre-launch schema with no real production data yet
             // (Google's own `sub` claim is well under 255 chars by spec),
             // so a data-cleanup step is not warranted - just a loud,
             // diagnosable failure instead of Postgres's own, matching
-            // this repo's fail-loud philosophy (e.g. #33's Program.cs
+            // this repo's fail-loud philosophy (e.g. Program.cs
             // config validation).
             migrationBuilder.Sql(
                 """

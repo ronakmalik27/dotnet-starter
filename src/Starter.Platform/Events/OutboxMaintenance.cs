@@ -3,10 +3,10 @@ using Npgsql;
 namespace Starter.Platform.Events;
 
 /// <summary>
-/// The outbox retention purge (doc 07 sections 3 and 13): delivered rows
+/// The outbox retention purge: delivered rows
 /// older than the retention window are deleted in batches; poisoned rows
-/// are never touched - they wait for the doc 11 replay tool. Scheduling
-/// belongs to the LLD 7.3 generic purger story; the query lives here so
+/// are never touched - they wait for the replay tool. Scheduling
+/// belongs to the generic purger job; the query lives here so
 /// the exclusion rule is owned and tested with the outbox.
 /// </summary>
 public sealed class OutboxMaintenance(NpgsqlDataSource dataSource)

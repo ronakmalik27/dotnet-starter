@@ -4,8 +4,8 @@ namespace Starter.Platform.Data;
 
 /// <summary>
 /// Registers the platform schema's own persistence (outbox, idempotency,
-/// domain events) through the same ADR-0011 descriptor path the modules
-/// use, so readiness and the migration walk see all nine schemas one way.
+/// domain events) through the same descriptor path the modules
+/// use, so readiness and the migration walk see every schema one way.
 /// </summary>
 public static class PlatformPersistence
 {

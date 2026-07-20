@@ -6,7 +6,7 @@ using Xunit;
 namespace Starter.Identity.Tests;
 
 /// <summary>
-/// The SRS 5.3 / doc 10 4.5 account-linking decision table, row by row:
+/// The account-linking decision table, row by row:
 /// claim an unverified password account, never silently merge into a
 /// verified one, register when the email is free, plain sign-in when the
 /// subject is already linked. The handler applies these decisions; the
@@ -37,7 +37,7 @@ public class GoogleLinkingTests
     [Fact]
     public void UnverifiedAccountHoldingTheEmail_IsClaimed()
     {
-        // SRS 5.3: the OIDC-verified email claims the unverified password
+        // The OIDC-verified email claims the unverified password
         // account (the holder never proved the address; Google's user did).
         GoogleLinking.Decide(subjectAlreadyLinked: false, UnverifiedUser(), confirmedUserId: null)
             .ShouldBe(GoogleLinkAction.ClaimUnverifiedAccount);
@@ -86,7 +86,7 @@ public class GoogleLinkingTests
     private static User NewUser(DateTimeOffset? emailVerifiedAt) => new()
     {
         Id = Guid.NewGuid(),
-        Email = "traveller@example.test",
+        Email = "person@example.test",
         Status = UserStatus.Active,
         EmailVerifiedAt = emailVerifiedAt,
         TokenVersion = 1,

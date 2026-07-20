@@ -1,11 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    Architecture layer (doc 12 sections 2 and 5). Two complementary halves:
-    the story #13 reflection tests (project-reference shape, public-surface
-    rules, float ban) that read compiled metadata, and the story #20
-    ArchUnitNET skeleton (banned APIs, module-boundary rule) that reads IL,
-    which reflection cannot see into. ArchUnitNET dependency justification
-    lives in Directory.Packages.props per doc 13 section 9.
+    Architecture layer. Two complementary halves: the reflection tests
+    (project-reference shape, public-surface rules, float ban) that read
+    compiled metadata, and the ArchUnitNET rules (banned APIs, module
+    boundaries) that read IL, which reflection cannot see into.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

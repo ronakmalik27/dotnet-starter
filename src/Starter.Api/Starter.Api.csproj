@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    Endpoint composition layer (LLD section 1): UI-composition reads call
-    module read interfaces from here (HLD 3.2 rule 2). Endpoints join with
-    their module use-case slices.
+    Endpoint composition layer: HTTP endpoints compose over the module
+    interfaces here. Modules never self-host routes.
   -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

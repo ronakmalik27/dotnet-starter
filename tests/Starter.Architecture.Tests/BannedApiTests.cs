@@ -5,18 +5,17 @@ using Xunit;
 namespace Starter.Architecture.Tests;
 
 /// <summary>
-/// Banned-API rules (doc 12 section 5; doc 13 section 2), IL-level via the
-/// ArchUnitNET domain model: reflection sees signatures, these rules see
-/// method bodies. Time flows only through the SharedKernel Clock (INV-6,
-/// determinism) and ids only through the SharedKernel Ids UUIDv7 helper
-/// (doc 07 B-tree locality), so the raw BCL calls are banned everywhere
-/// else - including compiler-generated closure and state-machine types,
-/// which live in the calling assembly and are scanned like any other type.
-/// Walks MethodCallDependency directly instead of the fluent
-/// Should().NotCallAny(MethodMembers()...) form because the fluent member
-/// provider only enumerates members of LOADED assemblies: BCL targets like
-/// DateTime.get_Now are not in it, so that rule form passes vacuously
-/// (verified red/green during story #20).
+/// Banned-API rules, IL-level via the ArchUnitNET domain model: reflection
+/// sees signatures, these rules see method bodies. Time flows only through
+/// the SharedKernel Clock (determinism) and ids only through the
+/// SharedKernel Ids UUIDv7 helper (B-tree locality), so the raw BCL calls
+/// are banned everywhere else - including compiler-generated closure and
+/// state-machine types, which live in the calling assembly and are scanned
+/// like any other type. Walks MethodCallDependency directly instead of the
+/// fluent Should().NotCallAny(MethodMembers()...) form because the fluent
+/// member provider only enumerates members of LOADED assemblies: BCL
+/// targets like DateTime.get_Now are not in it, so that rule form passes
+/// vacuously (verified red/green during initial development).
 /// </summary>
 public class BannedApiTests
 {
@@ -24,10 +23,10 @@ public class BannedApiTests
 
     public static TheoryData<string, string> BannedCalls => new()
     {
-        // Doc 12 section 5 list, plus the equivalent reads Gemini's round-1
-        // review flagged: DateTimeOffset.Now/UtcNow and DateTime.Today are
-        // the same wall-clock read (doc 13 section 2 routes ALL current
-        // time through Clock), and Guid.CreateVersion7 outside the kernel
+        // The banned-call list, plus the equivalent reads a review round
+        // flagged: DateTimeOffset.Now/UtcNow and DateTime.Today are
+        // the same wall-clock read (all current time routes through
+        // Clock), and Guid.CreateVersion7 outside the kernel
         // would bypass Ids, the single place id versioning lives. The
         // CreateVersion7 fragment has no closing paren so both overloads
         // (parameterless and DateTimeOffset) match.
@@ -38,8 +37,8 @@ public class BannedApiTests
         { "DateTimeOffset.UtcNow", "System.DateTimeOffset::get_UtcNow()" },
         { "Stopwatch.StartNew", "System.Diagnostics.Stopwatch::StartNew()" },
         // The constructor closes the new Stopwatch() + Start() bypass of
-        // the StartNew ban (CodeRabbit round 2); newobj is a
-        // MethodCallDependency to .ctor in the ArchUnitNET model.
+        // the StartNew ban; newobj is a MethodCallDependency to .ctor in
+        // the ArchUnitNET model.
         { "new Stopwatch", "System.Diagnostics.Stopwatch::.ctor()" },
         { "Guid.NewGuid", "System.Guid::NewGuid()" },
         { "Guid.CreateVersion7", "System.Guid::CreateVersion7(" },
@@ -53,18 +52,18 @@ public class BannedApiTests
 
         violations.ShouldBeEmpty(
             $"{bannedCall} is banned outside Starter.SharedKernel "
-            + "(doc 12 section 5: Clock owns time, Ids owns id minting)");
+            + "(Clock owns time, Ids owns id minting)");
     }
 
     [Fact]
     public void OutsideKernelAndCompositionRoot_TimeProviderSystem_IsNeverRead()
     {
-        // Gemini round 2: TimeProvider.System is the wall clock BEHIND the
-        // Clock abstraction, so reading it is the same bypass as
+        // TimeProvider.System is the wall clock BEHIND the Clock
+        // abstraction, so reading it is the same bypass as
         // DateTime.UtcNow. Two sanctioned readers exist by design: the
         // kernel (Clock.System wraps it) and the Starter.App composition
-        // root, which wires the singleton into DI exactly once (doc 13
-        // section 2); everything downstream injects Clock or TimeProvider.
+        // root, which wires the singleton into DI exactly once;
+        // everything downstream injects Clock or TimeProvider.
         var violations = CallsMatching(
             "System.TimeProvider::get_System()",
             "TimeProvider.System",

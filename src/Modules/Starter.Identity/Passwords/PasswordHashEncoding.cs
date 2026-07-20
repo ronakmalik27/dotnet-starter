@@ -8,7 +8,7 @@ namespace Starter.Identity.Passwords;
 /// (the reference-implementation convention, also what libsodium and
 /// passlib emit). Parameters ride inside every hash so verification never
 /// consults current policy and rehash-on-login can move parameters
-/// gradually (doc 10 4.1).
+/// gradually.
 /// </summary>
 internal static class PasswordHashEncoding
 {
@@ -110,7 +110,7 @@ internal static class PasswordHashEncoding
         Convert.FromBase64String(value.PadRight((value.Length + 3) / 4 * 4, '='));
 }
 
-/// <summary>Argon2id cost parameters as stored per-hash (doc 10 4.1).</summary>
+/// <summary>Argon2id cost parameters as stored per-hash.</summary>
 /// <param name="MemoryKibibytes">Memory cost in KiB (PHC `m`).</param>
 /// <param name="Iterations">Passes over memory (PHC `t`).</param>
 /// <param name="Parallelism">Lanes (PHC `p`).</param>

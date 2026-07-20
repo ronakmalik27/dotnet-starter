@@ -9,10 +9,10 @@ using Xunit;
 namespace Starter.Platform.Tests;
 
 /// <summary>
-/// The dispatcher's election-failure contract (LLD 7.1): an instance that
-/// cannot reach Postgres logs the loss, stays a follower, keeps re-entering
-/// the election instead of dying, and still shuts down cleanly. The
-/// leader-side behavior (claiming, sending, the PL-6 lease re-arm, the
+/// The dispatcher's election-failure contract: an instance that cannot
+/// reach Postgres logs the loss, stays a follower, keeps re-entering the
+/// election instead of dying, and still shuts down cleanly. The
+/// leader-side behavior (claiming, sending, the lease re-arm, the
 /// connection-kill handover) runs against real Postgres in the integration
 /// suite.
 /// </summary>

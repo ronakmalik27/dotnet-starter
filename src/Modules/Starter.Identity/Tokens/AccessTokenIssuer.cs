@@ -5,8 +5,8 @@ using Starter.Platform.Auth;
 namespace Starter.Identity.Tokens;
 
 /// <summary>
-/// Issues the doc 10 4.2 access JWT: ES256, 15-minute expiry, exactly the
-/// sub / sid / ver claims - no roles (INV-5: roles are per-trip, resolved
+/// Issues the access JWT: ES256, 15-minute expiry, exactly the
+/// sub / sid / ver claims - no roles (roles are scoped per-entity, resolved
 /// per-request). The verifying half is the platform's
 /// StarterJwtAuthentication; both sides share the StarterAuth constants.
 /// </summary>

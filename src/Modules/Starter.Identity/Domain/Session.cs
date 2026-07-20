@@ -1,10 +1,10 @@
 namespace Starter.Identity.Domain;
 
 /// <summary>
-/// An identity.sessions row (doc 07 section 4). Rotation writes a NEW row
+/// An identity.sessions row. Rotation writes a NEW row
 /// per refresh within the same family; the superseded row keeps its
 /// revoked_at, so a rotated token presented again is detectable reuse and
-/// revokes the whole family (FR-AUTH-04).
+/// revokes the whole family.
 /// </summary>
 internal sealed class Session
 {
@@ -17,13 +17,13 @@ internal sealed class Session
 
     /// <summary>
     /// SHA-256 of the 256-bit random refresh token, lowercase hex. The raw
-    /// token exists only in transit (doc 10 4.2: stored hashed).
+    /// token exists only in transit (stored hashed).
     /// </summary>
     public required string RefreshHash { get; init; }
 
     /// <summary>
     /// The user's token version when this row was issued; refresh rejects
-    /// on mismatch (doc 10 4.2: ver enforced at refresh only).
+    /// on mismatch (ver enforced at refresh only).
     /// </summary>
     public required int TokenVersion { get; init; }
 

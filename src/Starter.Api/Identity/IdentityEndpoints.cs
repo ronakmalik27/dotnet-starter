@@ -9,13 +9,13 @@ using Starter.Platform.Http;
 namespace Starter.Api.Identity;
 
 /// <summary>
-/// HTTP composition for the Identity module's register / login / refresh
-/// (#33), Google sign-in and first-password (#35), and email-verification
-/// (#34) slices: routes, request shapes, transport concerns (the doc 10
-/// 4.3 cookie split and the 4.7 GET-renders / POST-consumes split), and
-/// the doc 08 envelope for every failure. Business
+/// HTTP composition for the Identity module's register / login / refresh,
+/// Google sign-in and first-password, and email-verification
+/// slices: routes, request shapes, transport concerns (the
+/// cookie split and the GET-renders / POST-consumes split), and
+/// the problem-details envelope for every failure. Business
 /// rules live behind <see cref="IIdentityApi"/>; this layer never touches
-/// the module's internals (ADR-0011).
+/// the module's internals.
 /// </summary>
 public static class IdentityEndpoints
 {
@@ -27,7 +27,7 @@ public static class IdentityEndpoints
 
         var auth = app.MapGroup("/api/v1/auth").AllowAnonymous();
 
-        // Anonymous mutating endpoints ride outside the INV-4 idempotency
+        // Anonymous mutating endpoints ride outside the idempotency
         // filter by construction: the filter keys on the authenticated
         // caller, which these requests do not have. Each is naturally
         // retry-safe instead - registration converges on "same success",
@@ -36,23 +36,23 @@ public static class IdentityEndpoints
         auth.MapPost("/login", LoginAsync);
         auth.MapPost("/refresh", RefreshAsync);
         // Anonymous like login, but a caller MAY attach a valid access
-        // token: that authenticated identity is the doc 10 4.5 "signed-in
+        // token: that authenticated identity is the "signed-in
         // confirmation" for linking Google into a verified account.
         auth.MapPost("/google", GoogleAsync);
 
         // Outside the anonymous group: setting a password requires an
         // authenticated caller (an AllowAnonymous group would override a
         // per-endpoint RequireAuthorization). PUT is idempotent by shape;
-        // the INV-4 idempotency filter is for non-idempotent verbs.
+        // the idempotency filter is for non-idempotent verbs.
         app.MapPut("/api/v1/auth/password", SetPasswordAsync).RequireAuthorization();
 
-        // The doc 10 4.7 split (#34): the tokenized GET renders state and
+        // The verification-status split: the tokenized GET renders state and
         // is side-effect-free by construction; only the POST consumes.
         // Both are pub - the consumer proves control by holding the token.
         auth.MapGet("/verify-email/{token}", VerificationStatusAsync);
         auth.MapPost("/verify-email", VerifyEmailAsync);
 
-        // Resend is `user`-cap (doc 08 2.1), so it lives OUTSIDE the
+        // Resend is `user`-cap, so it lives OUTSIDE the
         // anonymous group: IAllowAnonymous metadata anywhere on an
         // endpoint would short-circuit RequireAuthorization.
         app.MapPost("/api/v1/auth/verify-email/resend", ResendVerificationAsync)
@@ -81,16 +81,6 @@ public static class IdentityEndpoints
         if (errors.Count > 0)
         {
             return TypedResults.Problem(StarterProblems.Validation(http, errors));
-        }
-
-        if (!string.IsNullOrEmpty(request.InviteToken))
-        {
-            // Join-scoped registration (doc 08 2.1) needs the Trips invite
-            // flow, which has not landed. Failing loudly beats silently
-            // dropping the token and stranding the user outside the trip
-            // they tapped (decision recorded in doc 08 2.1 and the #33 PR).
-            return NotImplemented(
-                http, "Invite-scoped registration lands with the Trips join flow; omit inviteToken until then.");
         }
 
         var result = await identity.RegisterAsync(request.Email!, request.Password!, cancellationToken);
@@ -141,7 +131,7 @@ public static class IdentityEndpoints
         HttpContext http,
         CancellationToken cancellationToken)
     {
-        // The CSRF companion header (doc 10 4.3): SameSite=Strict already
+        // The CSRF companion header: SameSite=Strict already
         // keeps browsers from sending the cookie cross-site; this header is
         // the defense that holds even where SameSite does not, because
         // cross-site forms cannot set custom headers.
@@ -168,7 +158,7 @@ public static class IdentityEndpoints
                 // A rejected refresh is terminal for this cookie (rotation,
                 // reuse, expiry, or ver bump): clear it so the SPA falls
                 // back to the login screen instead of replaying a dead
-                // token - which reads as an attack (FR-AUTH-04).
+                // token - which reads as an attack.
                 RefreshCookie.Delete(http.Response);
                 return error.ToProblemResult(http);
             });
@@ -188,7 +178,7 @@ public static class IdentityEndpoints
 
         if (string.IsNullOrWhiteSpace(request.CodeVerifier))
         {
-            errors["codeVerifier"] = ["The PKCE code verifier is required (doc 10 4.5)."];
+            errors["codeVerifier"] = ["The PKCE code verifier is required."];
         }
 
         if (string.IsNullOrWhiteSpace(request.RedirectUri))
@@ -198,21 +188,12 @@ public static class IdentityEndpoints
 
         if (string.IsNullOrWhiteSpace(request.Nonce))
         {
-            errors["nonce"] = ["The nonce of the authorization request is required (doc 10 4.5)."];
+            errors["nonce"] = ["The nonce of the authorization request is required."];
         }
 
         if (errors.Count > 0)
         {
             return TypedResults.Problem(StarterProblems.Validation(http, errors));
-        }
-
-        if (!string.IsNullOrEmpty(request.InviteToken))
-        {
-            // Same decision as register (doc 08 2.1): failing loudly
-            // beats silently dropping the invite and stranding the user
-            // outside the trip they tapped.
-            return NotImplemented(
-                http, "Invite-scoped sign-in lands with the Trips join flow; omit inviteToken until then.");
         }
 
         var result = await identity.SignInWithGoogleAsync(
@@ -233,10 +214,10 @@ public static class IdentityEndpoints
             error => error.Code switch
             {
                 // A host without Google wiring: the capability is
-                // documented (doc 08 2.1) but not enabled here.
+                // documented but not enabled here.
                 "auth.google_not_configured" => NotImplemented(
                     http, "Google sign-in is not configured on this host."),
-                // The doc 10 4.5 no-silent-merge rule, as its own slug so
+                // The no-silent-merge rule, as its own slug so
                 // clients can drive the "sign in first, then link" step.
                 "auth.google_link_confirmation_required" => LinkConfirmationRequired(http, error.Message),
                 _ => error.ToProblemResult(http),
@@ -251,9 +232,9 @@ public static class IdentityEndpoints
     {
         if (!string.IsNullOrEmpty(request.CurrentPassword))
         {
-            // A current password means FR-AUTH-10 change-password, which
-            // has not landed; only the FR-AUTH-03 first-password case
-            // (passwordless Google-created accounts) ships with #35.
+            // A current password means change-password, which
+            // has not landed; only the first-password case
+            // (passwordless Google-created accounts) has shipped.
             return NotImplemented(
                 http, "Changing an existing password lands with the change-password flow; this endpoint currently only sets a first password.");
         }
@@ -287,7 +268,7 @@ public static class IdentityEndpoints
     private static Guid? AuthenticatedUserId(HttpContext http)
     {
         // The JWT middleware ran even on AllowAnonymous routes; a valid
-        // bearer token yields the sub claim (doc 10 4.2).
+        // bearer token yields the sub claim.
         var sub = http.User.Identity?.IsAuthenticated == true
             ? http.User.FindFirst(StarterClaims.Sub)?.Value
             : null;
@@ -348,7 +329,7 @@ public static class IdentityEndpoints
         CancellationToken cancellationToken)
     {
         // The JWT middleware authenticated the caller; the sub claim is
-        // the account (doc 10 4.2). Fail closed if it is somehow absent.
+        // the account. Fail closed if it is somehow absent.
         var subject = http.User.FindFirst(StarterClaims.Sub)?.Value;
         if (!Guid.TryParse(subject, out var userId))
         {
@@ -358,7 +339,7 @@ public static class IdentityEndpoints
         var result = await identity.ResendVerificationEmailAsync(userId, cancellationToken);
         return result.Match(
             // 202: issuance is accepted; delivery is asynchronous (and
-            // joins with the notifications story's email channel, #19).
+            // joins with the notifications story's email channel).
             () => Results.Accepted(),
             error => error.ToProblemResult(http));
     }
@@ -366,7 +347,7 @@ public static class IdentityEndpoints
     private static ProblemHttpResult ToValidationProblem(HttpContext http, Starter.SharedKernel.Error error)
     {
         // Module validation failures name exactly one wire field; carry it
-        // in the doc 08 errors map so clients can highlight the input.
+        // in the problem-details errors map so clients can highlight the input.
         var field = error.Code.StartsWith("auth.password", StringComparison.Ordinal)
             ? "password"
             : "email";
@@ -400,39 +381,38 @@ public static class IdentityEndpoints
     }
 }
 
-/// <summary>POST /auth/register body (doc 08 2.1).</summary>
-public sealed record RegisterRequest(string? Email, string? Password, string? InviteToken);
+/// <summary>POST /auth/register body.</summary>
+public sealed record RegisterRequest(string? Email, string? Password);
 
-/// <summary>POST /auth/login body (doc 08 2.1).</summary>
+/// <summary>POST /auth/login body.</summary>
 public sealed record LoginRequest(string? Email, string? Password, string? DeviceLabel);
 
 /// <summary>
-/// POST /auth/google body (doc 08 2.1): the client-side authorization
+/// POST /auth/google body: the client-side authorization
 /// request's outputs - code, PKCE verifier, redirect URI, and nonce
-/// (doc 10 4.5: code flow + PKCE + nonce, no implicit flow).
+/// (code flow + PKCE + nonce, no implicit flow).
 /// </summary>
 public sealed record GoogleSignInRequest(
     string? Code,
     string? CodeVerifier,
     string? RedirectUri,
     string? Nonce,
-    string? DeviceLabel,
-    string? InviteToken);
+    string? DeviceLabel);
 
-/// <summary>PUT /auth/password body (doc 08 2.1; only the first-password case ships with #35).</summary>
+/// <summary>PUT /auth/password body (only the first-password case has shipped).</summary>
 public sealed record SetPasswordRequest(string? CurrentPassword, string? NewPassword);
 
-/// <summary>POST /auth/register success - identical for new and existing emails (SRS 5.3).</summary>
+/// <summary>POST /auth/register success - identical for new and existing emails.</summary>
 public sealed record RegisterResponse(bool Registered);
 
-/// <summary>Login and refresh success body; the refresh token rides the cookie, never JSON (doc 10 4.3).</summary>
+/// <summary>Login and refresh success body; the refresh token rides the cookie, never JSON.</summary>
 public sealed record TokenResponse(string AccessToken, int ExpiresIn);
 
-/// <summary>POST /auth/verify-email body (doc 08 2.1): the consuming POST of the doc 10 4.7 split.</summary>
+/// <summary>POST /auth/verify-email body: the consuming POST of the verification-status split.</summary>
 public sealed record VerifyEmailRequest(string? Token);
 
 /// <summary>POST /auth/verify-email success.</summary>
 public sealed record VerifyEmailResponse(bool Verified);
 
-/// <summary>GET /auth/verify-email/{token} body: render-only token state (doc 10 4.7).</summary>
+/// <summary>GET /auth/verify-email/{token} body: render-only token state.</summary>
 public sealed record VerificationStatusResponse(string Status);

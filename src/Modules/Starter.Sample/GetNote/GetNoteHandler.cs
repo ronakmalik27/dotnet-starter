@@ -6,7 +6,7 @@ namespace Starter.Sample.GetNote;
 /// <summary>
 /// Reads a note by id. A read has no transaction and no outbox: the query
 /// half of the create/get pair. An unknown id is a NotFound failure, which
-/// the platform maps to 404 (never 403 for a missing row, doc 10 section 5).
+/// the platform maps to 404 (never 403 for a missing row).
 /// </summary>
 internal sealed class GetNoteHandler(SampleDbContext db)
 {

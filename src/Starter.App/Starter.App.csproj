@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <!--
-    The host (LLD section 1): DI wiring, request pipeline, hosted services.
-    The one project allowed to reference everything - it is the composition
+    The host: DI wiring, request pipeline, hosted services. The one
+    project allowed to reference everything - it is the composition
     root and nothing references it back.
   -->
   <PropertyGroup>
-    <!-- Dev-only secrets (doc 10 section 9): Key Vault is not emulated
-         locally; the dev KEK lives in dotnet user-secrets, never in the
-         repo or the compose file. -->
+    <!-- Dev-only secrets: a managed secret store is not emulated locally;
+         the dev key lives in dotnet user-secrets, never in the repo or the
+         compose file. -->
     <UserSecretsId>89f9ec5f-975c-4f53-9b47-f3fe7947291d</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>

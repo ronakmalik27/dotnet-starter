@@ -6,9 +6,9 @@ namespace Starter.Platform.Events;
 
 /// <summary>
 /// Stages a domain event plus its outbox rows inside the caller's open
-/// transaction (doc 07 section 3 write rule: state + domain_events + outbox
-/// commit or roll back together, INV-8). One outbox row per lane that has a
-/// consumer for the event type (LLD 7.1); the event row is always written -
+/// transaction (state + domain_events + outbox
+/// commit or roll back together in the same transaction). One outbox row per lane that has a
+/// consumer for the event type; the event row is always written -
 /// the spine keeps everything even when nobody consumes it yet.
 /// </summary>
 public sealed class OutboxWriter
@@ -46,7 +46,7 @@ public sealed class OutboxWriter
 
         var transaction = transactionOwner.Database.CurrentTransaction
             ?? throw new InvalidOperationException(
-                "EnqueueAsync must run inside the business transaction (doc 07 section 3 write rule).");
+                "EnqueueAsync must run inside the business transaction.");
 
         var optionsBuilder = new DbContextOptionsBuilder<PlatformDbContext>();
         optionsBuilder

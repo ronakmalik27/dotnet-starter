@@ -14,7 +14,7 @@ internal enum GoogleLinkAction
     /// <summary>
     /// The email belongs to an UNVERIFIED password account: the
     /// OIDC-verified email claims it, and password login is disabled until
-    /// reset (SRS 5.3).
+    /// reset.
     /// </summary>
     ClaimUnverifiedAccount,
 
@@ -26,14 +26,14 @@ internal enum GoogleLinkAction
 
     /// <summary>
     /// The email belongs to a verified account and no signed-in
-    /// confirmation was presented: never silently merge (doc 10 4.5) -
+    /// confirmation was presented: never silently merge -
     /// surface the conflict.
     /// </summary>
     ConfirmationRequired,
 }
 
 /// <summary>
-/// The SRS 5.3 / doc 10 4.5 account-linking decision table, as a pure
+/// The account-linking decision table, as a pure
 /// function so the unit suite can prove every row. Inputs: whether the
 /// OIDC subject is already linked, the account currently holding the
 /// email (if any), and the authenticated user the request carries (if

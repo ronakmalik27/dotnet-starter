@@ -8,7 +8,7 @@ namespace Starter.Platform.Http;
 /// enlists via the OutboxWriter pattern: shared connection + UseTransaction),
 /// and the filter appends the idempotency row and commits after the handler
 /// succeeds - so the stored response and the handler's writes are atomic
-/// (LLD 7.2, doc 07 section 3: same DB precisely so replay-after-crash is
+/// (the shared transaction is why replay-after-crash is
 /// consistent).
 /// </summary>
 public interface IIdempotentTransaction

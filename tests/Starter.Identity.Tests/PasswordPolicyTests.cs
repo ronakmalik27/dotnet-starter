@@ -5,7 +5,7 @@ using Xunit;
 namespace Starter.Identity.Tests;
 
 /// <summary>
-/// FR-AUTH-01: length >= 10, offline breach check, and deliberately
+/// Password policy: length >= 10, offline breach check, and deliberately
 /// nothing else - no composition rules.
 /// </summary>
 public class PasswordPolicyTests
@@ -59,7 +59,7 @@ public class PasswordPolicyTests
     [Fact]
     public void BreachedSet_LoadsFullCorpus()
     {
-        // A truncated embedded resource would silently weaken FR-AUTH-01;
+        // A truncated embedded resource would silently weaken the policy;
         // the two SecLists top-1M sources filtered to >= 10 chars land
         // around a quarter million entries.
         new BreachedPasswordSet().Count.ShouldBeGreaterThan(200_000);

@@ -9,7 +9,7 @@ public class EmailAddressTests
     [Theory]
     [InlineData("priya@example.com")]
     [InlineData("first.last+tag@sub.domain.co.in")]
-    [InlineData("Priya@Example.com")] // uppercase domain: citext storage, doc 07 section 4
+    [InlineData("Priya@Example.com")] // uppercase domain: citext storage
     public void IsValid_ReasonableAddresses_True(string email)
     {
         EmailAddress.IsValid(email).ShouldBeTrue();

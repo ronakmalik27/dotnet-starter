@@ -59,10 +59,6 @@ namespace Starter.Platform.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("payload");
 
-                    b.Property<Guid?>("TripId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("trip_id");
-
                     b.HasKey("Id", "OccurredAt")
                         .HasName("pk_domain_events");
 

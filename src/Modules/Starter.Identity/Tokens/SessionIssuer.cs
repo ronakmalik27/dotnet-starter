@@ -7,9 +7,9 @@ namespace Starter.Identity.Tokens;
 
 /// <summary>
 /// The one place a proven identity becomes a session: a fresh
-/// refresh-token family row, the doc 09 session event, and the ES256
-/// access JWT. Session issuance is method-agnostic by design (FR-AUTH-15
-/// DR): password login (#33) and Google sign-in (#35) both land here, so
+/// refresh-token family row, the session event, and the ES256
+/// access JWT. Session issuance is method-agnostic by design (deferred-
+/// readiness): password login and Google sign-in both land here, so
 /// an OIDC-authenticated user gets exactly the tokens a password login
 /// gets - there is no parallel token path to drift.
 /// </summary>
@@ -26,8 +26,8 @@ internal sealed class SessionIssuer(
     /// issues tokens for state that never persisted. Joins the caller's
     /// open transaction when there is one (the Google linking paths);
     /// otherwise opens and commits its own (login). The outbox write
-    /// requires the transaction to be open BEFORE enqueueing (doc 07
-    /// section 3 write rule; OutboxWriter enforces it).
+    /// requires the transaction to be open BEFORE enqueueing (the
+    /// write rule; OutboxWriter enforces it).
     /// </summary>
     public async Task<IssuedTokens> IssueAsync(
         User user,

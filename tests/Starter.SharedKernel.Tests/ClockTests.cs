@@ -36,7 +36,7 @@ public class ClockTests
     [Fact]
     public void UtcNow_FakeSeededWithIstOffset_NormalizesToUtc()
     {
-        // INV-6: storage time is UTC. An IST-offset instant comes back as
+        // Storage time is UTC. A positive-offset instant comes back as
         // the same instant with a zero offset.
         var istInstant = new DateTimeOffset(2026, 7, 8, 2, 0, 0, TimeSpan.FromHours(5.5));
         var clock = new Clock(new FakeTimeProvider(istInstant));
@@ -48,8 +48,8 @@ public class ClockTests
     [Fact]
     public void TodayUtc_LateEveningUtc_ReturnsUtcDateNotLocalDate()
     {
-        // 23:59 UTC on the 7th is already the 8th in IST; TodayUtc must say
-        // the 7th regardless of any local zone (INV-6).
+        // 23:59 UTC on the 7th is already the 8th in a positive-offset zone;
+        // TodayUtc must say the 7th regardless of any local zone.
         var lateUtc = new DateTimeOffset(2026, 7, 7, 23, 59, 59, TimeSpan.Zero);
         var clock = new Clock(new FakeTimeProvider(lateUtc));
 

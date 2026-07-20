@@ -9,8 +9,8 @@ using Xunit;
 namespace Starter.Identity.Tests;
 
 /// <summary>
-/// Doc 10 4.2 claim construction: ES256, 15-minute expiry, exactly
-/// sub / sid / ver, and no role claims (INV-5).
+/// Claim construction: ES256, 15-minute expiry, exactly
+/// sub / sid / ver, and no role claims.
 /// </summary>
 public class AccessTokenIssuerTests
 {
@@ -57,7 +57,7 @@ public class AccessTokenIssuerTests
     [Fact]
     public void Issue_CarriesNoRoleClaims()
     {
-        // INV-5: roles are per-trip, resolved per-request - never baked
+        // Roles are scoped per-entity, resolved per-request - never baked
         // into the token.
         var token = Issue();
 

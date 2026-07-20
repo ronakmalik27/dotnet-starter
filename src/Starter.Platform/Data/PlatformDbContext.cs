@@ -5,7 +5,7 @@ using Starter.Platform.Http;
 namespace Starter.Platform.Data;
 
 /// <summary>
-/// The platform schema's context (doc 07 section 3): outbox, domain_events,
+/// The platform schema's context: outbox, domain_events,
 /// and idempotency_keys - the plumbing every module shares.
 /// </summary>
 internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options)
@@ -39,7 +39,7 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
                     lane => LaneNames.Of(lane),
                     name => name == LaneNames.Fast ? Lane.Fast : Lane.Slow)
                 .HasColumnType("text");
-            // Doc 07 section 12: the two-lane dispatcher poll index.
+            // The two-lane dispatcher poll index.
             entity.HasIndex(e => new { e.Lane, e.NextAttemptAt })
                 .HasFilter("delivered_at is null and poisoned_at is null");
             entity.Property(e => e.EnqueuedAt).HasDefaultValueSql("now()");
@@ -49,8 +49,8 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
         modelBuilder.Entity<IdempotencyKeyRow>(entity =>
         {
-            // Doc 07 section 3 DDL: pk (user_id, key), response stored as
-            // jsonb, created_at drives the 14-day purge (section 13).
+            // DDL: pk (user_id, key), response stored as
+            // jsonb, created_at drives the 14-day purge.
             entity.ToTable("idempotency_keys");
             entity.HasKey(e => new { e.UserId, e.Key });
             entity.Property(e => e.ResponseBody).HasColumnType("jsonb");

@@ -5,8 +5,8 @@ namespace Starter.Platform.Http;
 
 /// <summary>
 /// The endpoint-side bridge from the Result channel to the wire: handlers
-/// return Result (LLD section 1) and their endpoints map failures through
-/// here, so every expected failure leaves in the doc 08 envelope.
+/// return Result and their endpoints map failures through
+/// here, so every expected failure leaves in the problem envelope.
 /// </summary>
 public static class ErrorResultExtensions
 {

@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    The worked example of the module pattern (ADR-0011): public surface is
-    exactly the ISampleApi interface plus the SampleModule bootstrap class;
+    The worked example of the module pattern: public surface is exactly
+    the ISampleApi interface plus the SampleModule bootstrap class;
     everything else stays internal. Within the solution, a module may
-    reference only the SharedKernel and Platform - never another module
-    (HLD 3.2); the architecture tests enforce this. Copy this project as the
+    reference only the SharedKernel and Platform - never another module;
+    the architecture tests enforce this. Copy this project as the
     starting point for a new module.
   -->
   <ItemGroup>

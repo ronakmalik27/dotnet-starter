@@ -8,10 +8,10 @@ using Starter.SharedKernel;
 namespace Starter.Identity.SetPassword;
 
 /// <summary>
-/// The FR-AUTH-03 dual-method slice of PUT /auth/password: a passwordless
+/// The dual-method slice of PUT /auth/password: a passwordless
 /// (Google-created) account sets its FIRST password and becomes
-/// dual-method - a second auth_methods row, same list model (FR-AUTH-15
-/// DR). Changing an existing password is FR-AUTH-10's flow (current
+/// dual-method - a second auth_methods row, same list model (deferred-
+/// readiness). Changing an existing password is a separate flow (current
 /// password, session revocation) and stays 501 until that story lands;
 /// this handler owns only the no-password-yet case.
 /// </summary>
@@ -23,15 +23,15 @@ internal sealed class SetPasswordHandler(
 {
     /// <summary>
     /// A password method already exists (enabled or disabled): replacing
-    /// it needs FR-AUTH-10 change-password or FR-AUTH-05 reset, neither of
+    /// it needs a change-password or reset flow, neither of
     /// which has landed. The endpoint layer maps this code to 501
-    /// starter:not-implemented, the #33 precedent for documented-but-
+    /// starter:not-implemented, the precedent for documented-but-
     /// unshipped capability.
     /// </summary>
     private static readonly Error ChangeNotImplemented = new(
         ErrorKind.Conflict,
         "auth.password_change_not_implemented",
-        "This account already has a password; changing it lands with the change-password flow (FR-AUTH-10).");
+        "This account already has a password; changing it lands with the change-password flow.");
 
     public async Task<Result> HandleAsync(Guid userId, string newPassword, CancellationToken cancellationToken)
     {
@@ -65,7 +65,7 @@ internal sealed class SetPasswordHandler(
         var now = clock.UtcNow;
 
         // The transaction opens before the enqueue: the outbox write joins
-        // the open business transaction (doc 07 section 3 write rule).
+        // the open business transaction (write rule).
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         db.AuthMethods.Add(new AuthMethod
         {

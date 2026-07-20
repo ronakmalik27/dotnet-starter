@@ -39,7 +39,7 @@ public class IdsTests
     [Fact]
     public void NewId_IncreasingTimestamps_SortInMintOrder()
     {
-        // The B-tree locality argument (doc 07) rests on ids ordering by
+        // The B-tree locality argument rests on ids ordering by
         // creation time; both string and Guid comparison must agree.
         var start = new DateTimeOffset(2026, 7, 7, 10, 30, 0, TimeSpan.Zero);
         var ids = Enumerable.Range(0, 100)
@@ -55,7 +55,7 @@ public class IdsTests
     {
         // .NET's CreateVersion7 fills rand_a/rand_b with random bits, not a
         // monotonic counter, so order WITHIN one millisecond is unspecified
-        // and nothing in Starter may rely on it. What the doc 07 locality
+        // and nothing in Starter may rely on it. What the locality
         // argument needs from a same-instant burst is that all ids share
         // the 48-bit millisecond prefix (co-located B-tree pages) and stay
         // unique; that is what this asserts.

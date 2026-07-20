@@ -3,9 +3,9 @@ using Starter.SharedKernel;
 namespace Starter.Identity.Passwords;
 
 /// <summary>
-/// The FR-AUTH-01 password policy: length >= 10 plus the offline breach
+/// The password policy: length >= 10 plus the offline breach
 /// check, deliberately no composition rules and no rotation nagging
-/// (doc 10 4.1, the NIST SP 800-63B position).
+/// (the NIST SP 800-63B position).
 /// </summary>
 internal sealed class PasswordPolicy(BreachedPasswordSet breachedPasswords)
 {
@@ -28,7 +28,7 @@ internal sealed class PasswordPolicy(BreachedPasswordSet breachedPasswords)
             return Result.Failure(new Error(
                 ErrorKind.Validation,
                 "auth.password_too_short",
-                $"Passwords must be at least {MinimumLength} characters (FR-AUTH-01)."));
+                $"Passwords must be at least {MinimumLength} characters."));
         }
 
         if (password.Length > MaximumLength)
@@ -44,7 +44,7 @@ internal sealed class PasswordPolicy(BreachedPasswordSet breachedPasswords)
             return Result.Failure(new Error(
                 ErrorKind.Validation,
                 "auth.password_breached",
-                "This password appears in known data breaches; choose a different one (FR-AUTH-01)."));
+                "This password appears in known data breaches; choose a different one."));
         }
 
         return Result.Success();

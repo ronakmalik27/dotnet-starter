@@ -3,8 +3,8 @@ using Npgsql;
 namespace Starter.Platform.Events;
 
 /// <summary>
-/// Session-scoped Postgres advisory lock (LLD 7.1, HLD 2.1): exactly one
-/// dispatcher leads across ACA revisions during the deploy overlap window.
+/// Session-scoped Postgres advisory lock: exactly one
+/// dispatcher leads across the old and new deployment during a rolling deploy overlap window.
 /// The lock lives on a pinned connection; losing the connection IS losing
 /// the lock, so the health check between batches is a ping on that
 /// connection.
@@ -90,7 +90,7 @@ internal sealed class AdvisoryLock(NpgsqlDataSource dataSource, long key) : IAsy
     /// returns true only if it completed there. Success proves the session
     /// - and therefore the lock - was still held when the command's effects
     /// became durable; that is the anchor for the dispatcher's per-row
-    /// lease re-arm (PL-6). Any failure is treated as lock loss and
+    /// lease re-arm. Any failure is treated as lock loss and
     /// releases the connection, same contract as StillHeldAsync: the safe
     /// direction is to report the lock gone when in doubt.
     /// </summary>

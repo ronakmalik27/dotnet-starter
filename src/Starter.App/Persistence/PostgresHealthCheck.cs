@@ -4,12 +4,11 @@ using Npgsql;
 namespace Starter.App.Persistence;
 
 /// <summary>
-/// The readiness half of the issue #99 architect finding: readyz probes
-/// the same NpgsqlDataSource every request-path write rides, so the
-/// no-persistence failure mode can never hide behind a ready signal.
-/// Descriptions stay generic - probe responses are unauthenticated
-/// surface (doc 10 section 3); the exception goes to the health-check
-/// log, not the wire.
+/// The readiness half of the health-check pairing: readyz probes the same
+/// NpgsqlDataSource every request-path write rides, so the no-persistence
+/// failure mode can never hide behind a ready signal. Descriptions stay
+/// generic - probe responses are unauthenticated surface; the exception
+/// goes to the health-check log, not the wire.
 /// </summary>
 internal sealed class PostgresHealthCheck(NpgsqlDataSource dataSource) : IHealthCheck
 {

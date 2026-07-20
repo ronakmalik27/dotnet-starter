@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Starter.Platform.Data;
 
 /// <summary>
-/// The registration half of the ADR-0011 bootstrap contract: a module's
+/// The registration half of the module bootstrap contract: a module's
 /// public Add&lt;Module&gt;Module extension calls this once with its
 /// internal context type. The context stays internal while the host, the
 /// readiness probe, and the integration fixture consume it through DI and

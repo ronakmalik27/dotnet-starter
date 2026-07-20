@@ -4,8 +4,7 @@ namespace Starter.Sample.Domain;
 /// A sample.notes row: the smallest entity that still shows the pattern -
 /// a UUIDv7 id minted app-side (SharedKernel Ids), created/updated
 /// timestamps stamped from the SharedKernel Clock, and no cross-schema
-/// navigations (HLD 3.2). Copy this as the starting point for a real
-/// module entity.
+/// navigations. Copy this as the starting point for a real module entity.
 /// </summary>
 internal sealed class Note
 {

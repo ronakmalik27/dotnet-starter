@@ -3,8 +3,7 @@ using System.Diagnostics.Metrics;
 namespace Starter.Platform.Events;
 
 /// <summary>
-/// Dispatcher observability (story #16 DoD; GA-3/GA-7 signals, doc 11
-/// section 7): dispatch lag and poison counts. Standard .NET Meter, so the
+/// Dispatcher observability: dispatch lag and poison counts. Standard .NET Meter, so the
 /// OTel exporter story wires up later without touching this type.
 /// </summary>
 public sealed class OutboxMetrics : IDisposable

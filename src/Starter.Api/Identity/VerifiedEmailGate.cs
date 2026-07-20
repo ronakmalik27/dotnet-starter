@@ -8,20 +8,20 @@ using Starter.Platform.Http;
 namespace Starter.Api.Identity;
 
 /// <summary>
-/// The `vrf` capability gate (doc 08 section 1 shorthand; doc 10 section
-/// 5): an endpoint filter that 403s any authenticated caller whose email
+/// The `vrf` capability gate: an endpoint filter that 403s any
+/// authenticated caller whose email
 /// is not verified, with the starter:verification-required problem so the
-/// doc 03 A5 UI can render the reason inline. Composes AFTER
+/// UI can render the reason inline. Composes AFTER
 /// RequireAuthorization, exactly as [Authorize] gates `user`-cap
 /// endpoints; fail-closed on a missing or unparseable sub claim (401) and
-/// on a missing account row (403). The three always-verified actions -
-/// create trip, vault upload, VPA set (FR-AUTH-02) - attach this when
-/// their HTTP endpoints land; until then the gate ships as a tested,
-/// reusable piece (#41's deferred-wiring pattern).
+/// on a missing account row (403). The always-verified write actions -
+/// creating a record, uploading a file, updating account settings - attach
+/// this when their HTTP endpoints land; until then the gate ships as a
+/// tested, reusable piece (a deferred-wiring pattern).
 /// </summary>
 public static class VerifiedEmailGate
 {
-    /// <summary>Declares the endpoint `vrf` (doc 08 section 1): verified account required.</summary>
+    /// <summary>Declares the endpoint `vrf`: verified account required.</summary>
     public static TBuilder RequireVerifiedEmail<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder
     {

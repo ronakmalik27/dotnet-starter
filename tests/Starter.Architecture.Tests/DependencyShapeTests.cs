@@ -5,7 +5,7 @@ using Xunit;
 namespace Starter.Architecture.Tests;
 
 /// <summary>
-/// Project-reference shape rules (LLD section 1, HLD 3.2). These read
+/// Project-reference shape rules. These read
 /// compiled assembly metadata, so they hold whatever the source looks like.
 /// The compiler prunes unused references from metadata, which only makes
 /// these subset assertions stricter.
@@ -15,10 +15,9 @@ public class DependencyShapeTests
     [Fact]
     public void SharedKernel_ReferencedAssemblies_ContainNothingFromTheSolution()
     {
-        // LLD section 1: the kernel is the bottom of the dependency graph.
-        // Fully qualified so the reference is unambiguous whatever module
-        // namespaces are in scope.
-        var references = typeof(Starter.SharedKernel.Money).Assembly.GetReferencedAssemblies();
+        // The kernel is the bottom of the dependency graph: it references
+        // nothing else in the solution.
+        var references = typeof(Starter.SharedKernel.Ids).Assembly.GetReferencedAssemblies();
 
         references.ShouldAllBe(
             reference => !reference.Name!.StartsWith("Starter", StringComparison.Ordinal));
@@ -28,8 +27,8 @@ public class DependencyShapeTests
     [MemberData(nameof(StarterModules.ApiTypeData), MemberType = typeof(StarterModules))]
     public void Module_SolutionReferences_AreOnlySharedKernelAndPlatform(Type moduleApiType)
     {
-        // HLD 3.2 rule 1 / ADR-0011: modules never reference another
-        // module. Cross-module calls are composition-mediated: the
+        // Modules never reference another module. Cross-module calls are
+        // composition-mediated: the
         // Api/App layer resolves I<Module>Api instances and passes
         // results down as parameters.
         var solutionReferences = moduleApiType.Assembly.GetReferencedAssemblies()

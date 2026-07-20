@@ -3,12 +3,12 @@ using Microsoft.EntityFrameworkCore;
 namespace Starter.Identity.Verification;
 
 /// <summary>
-/// The `vrf` gate's question (doc 10 section 5): is this account's email
+/// The `vrf` gate's question: is this account's email
 /// verified? One indexed primary-key read; a missing or deleted row is
 /// simply "not verified" - the gate fails closed either way. Deliberately
-/// bool-only: the gate needs nothing else, and the invited-vs-organic
-/// write-lock derivation (deadline-aware) joins with the endpoints it
-/// gates (Trips HTTP wave).
+/// bool-only: the gate needs nothing else, and the deadline-aware
+/// write-lock derivation joins with the endpoints it
+/// gates in a later HTTP wave.
 /// </summary>
 internal sealed class VerifiedEmailQuery(IdentityDbContext db)
 {

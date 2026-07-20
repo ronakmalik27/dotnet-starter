@@ -6,7 +6,7 @@ namespace Starter.Platform.Data;
 
 /// <summary>
 /// Guid primary keys are never database-generated: the app mints UUIDv7
-/// values through the SharedKernel Ids helper (doc 07 section 1). This
+/// values through the SharedKernel Ids helper. This
 /// convention makes that the default for every entity in every module, so
 /// no per-entity configuration can silently fall back to a database
 /// default or a v4 generator.

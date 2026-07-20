@@ -16,7 +16,7 @@ public static class StarterArchitecture
     // bare name Architecture binds to the Starter.Architecture namespace.
     public static ArchUnitNET.Domain.Architecture Instance { get; } = new ArchLoader()
         .LoadAssemblies([
-            typeof(Starter.SharedKernel.Money).Assembly,
+            typeof(Starter.SharedKernel.Ids).Assembly,
             typeof(Starter.Platform.Data.ModuleDbContext).Assembly,
             Assembly.Load(new AssemblyName("Starter.Api")),
             Assembly.Load(new AssemblyName("Starter.App")),

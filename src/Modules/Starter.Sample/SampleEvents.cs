@@ -5,9 +5,9 @@ using Starter.SharedKernel;
 namespace Starter.Sample;
 
 /// <summary>
-/// The Sample module's domain events. Payloads follow the doc 09 privacy
-/// rule: ids and coarse metadata only - never free-text bodies or any
-/// user content. The event id is a UUIDv7 minted through the SharedKernel
+/// The Sample module's domain events. Payloads carry ids and coarse
+/// metadata only - never free-text bodies or any user content. The
+/// event id is a UUIDv7 minted through the SharedKernel
 /// Ids helper, so ordering matches the row it describes.
 /// </summary>
 internal static class SampleEvents

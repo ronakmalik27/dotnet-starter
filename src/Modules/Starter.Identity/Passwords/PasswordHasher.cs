@@ -5,7 +5,7 @@ using Konscious.Security.Cryptography;
 namespace Starter.Identity.Passwords;
 
 /// <summary>
-/// Argon2id password hashing per the doc 10 4.1 OWASP-baseline parameters:
+/// Argon2id password hashing per OWASP-baseline parameters:
 /// memory 19 MiB, iterations 2, parallelism 1. Parameters are stored
 /// per-hash (PHC format) and <see cref="NeedsRehash"/> drives
 /// rehash-on-login, so parameter upgrades are gradual and free. Static by
@@ -13,7 +13,7 @@ namespace Starter.Identity.Passwords;
 /// </summary>
 internal static class PasswordHasher
 {
-    /// <summary>Current policy (doc 10 4.1). Moving these is a doc 10 change.</summary>
+    /// <summary>Current policy. Moving these is a deliberate, reviewed change.</summary>
     internal static readonly Argon2Parameters CurrentParameters = new(
         MemoryKibibytes: 19 * 1024,
         Iterations: 2,
@@ -26,7 +26,7 @@ internal static class PasswordHasher
     // A throwaway hash verified against mismatching input to give the
     // user-unknown paths the same Argon2 cost as a real verification
     // (login and register stay timing-uniform across existing and
-    // unknown accounts - the SRS 5.3 enumeration edge).
+    // unknown accounts - the no-account-enumeration edge).
     private static readonly Lazy<string> DummyHash = new(
         () => Hash(Convert.ToHexString(RandomNumberGenerator.GetBytes(24))),
         LazyThreadSafetyMode.ExecutionAndPublication);
@@ -56,7 +56,7 @@ internal static class PasswordHasher
 
     /// <summary>
     /// True when the stored hash predates the current parameters; the
-    /// login path rehashes with the just-verified password (doc 10 4.1).
+    /// login path rehashes with the just-verified password.
     /// </summary>
     public static bool NeedsRehash(string encodedHash)
     {
@@ -69,7 +69,7 @@ internal static class PasswordHasher
     /// <summary>
     /// Burns one full Argon2 verification without revealing anything:
     /// called on paths where no stored hash exists so response timing does
-    /// not distinguish existing from unknown accounts (SRS 5.3).
+    /// not distinguish existing from unknown accounts.
     /// </summary>
     public static void VerifyDummy(string password)
     {

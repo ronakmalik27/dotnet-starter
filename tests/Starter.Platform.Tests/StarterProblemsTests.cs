@@ -8,9 +8,9 @@ using Xunit;
 namespace Starter.Platform.Tests;
 
 /// <summary>
-/// The story #17 mapping table as unit tests: every ErrorKind lands in the
-/// doc 08 problem+json envelope with its documented status and starter:*
-/// slug, and every envelope carries a traceId. This is the contract the
+/// The mapping table as unit tests: every ErrorKind lands in the
+/// problem+json envelope with its documented status and starter:* slug,
+/// and every envelope carries a traceId. This is the contract the
 /// ErrorKind XML docs promise.
 /// </summary>
 public class StarterProblemsTests
@@ -20,9 +20,9 @@ public class StarterProblemsTests
 
     public static TheoryData<ErrorKind, string, int, string> MappingTable => new()
     {
-        { ErrorKind.Validation, "expense.split_mismatch", StatusCodes.Status422UnprocessableEntity, ProblemTypes.Validation },
-        { ErrorKind.NotFound, "trip.not_found", StatusCodes.Status404NotFound, ProblemTypes.NotFound },
-        { ErrorKind.Conflict, "trip.version_conflict", StatusCodes.Status409Conflict, ProblemTypes.VersionConflict },
+        { ErrorKind.Validation, "sample.field_mismatch", StatusCodes.Status422UnprocessableEntity, ProblemTypes.Validation },
+        { ErrorKind.NotFound, "sample.not_found", StatusCodes.Status404NotFound, ProblemTypes.NotFound },
+        { ErrorKind.Conflict, "sample.version_conflict", StatusCodes.Status409Conflict, ProblemTypes.VersionConflict },
         { ErrorKind.Conflict, "idempotency.in_flight", StatusCodes.Status409Conflict, ProblemTypes.IdempotencyInFlight },
         { ErrorKind.Unauthorized, "auth.token_expired", StatusCodes.Status401Unauthorized, ProblemTypes.Unauthorized },
         { ErrorKind.RateLimited, "rate.limit_exceeded", StatusCodes.Status429TooManyRequests, ProblemTypes.RateLimited },
@@ -46,7 +46,7 @@ public class StarterProblemsTests
     [Fact]
     public void From_EveryErrorKind_HasAMapping()
     {
-        // A kind added to the SharedKernel without a doc 08 slug must fail
+        // A kind added to the SharedKernel without a mapped slug must fail
         // here, not at runtime (ErrorKind XML docs: both change together).
         foreach (var kind in Enum.GetValues<ErrorKind>())
         {
@@ -59,7 +59,7 @@ public class StarterProblemsTests
     [Fact]
     public void From_CarriesTraceId()
     {
-        var error = new Error(ErrorKind.NotFound, "trip.not_found", "message");
+        var error = new Error(ErrorKind.NotFound, "sample.not_found", "message");
 
         var problem = StarterProblems.From(error, NewHttpContext());
 
@@ -74,7 +74,7 @@ public class StarterProblemsTests
     {
         var errors = new Dictionary<string, string[]>
         {
-            ["Idempotency-Key"] = ["The Idempotency-Key header is required on mutating endpoints (doc 08 section 1)."],
+            ["Idempotency-Key"] = ["The Idempotency-Key header is required on mutating endpoints."],
         };
 
         var problem = StarterProblems.Validation(NewHttpContext(), errors);
@@ -97,7 +97,7 @@ public class StarterProblemsTests
     public void Internal_Is500WithNoDetail()
     {
         // The 500 body carries only slug, title, and traceId; whatever blew
-        // up stays in the logs (story #17: no raw exception reaches a client).
+        // up stays in the logs (no raw exception reaches a client).
         var problem = StarterProblems.Internal(NewHttpContext());
 
         problem.Status.ShouldBe(StatusCodes.Status500InternalServerError);
@@ -115,8 +115,8 @@ public class StarterProblemsTests
     [InlineData(StatusCodes.Status502BadGateway, ProblemTypes.Internal)] // 5xx keeps the internal slug
     public void ForStatus_MapsBareStatuses_ToTheirSlugs_PreservingTheStatus(int statusCode, string expectedType)
     {
-        // The status-code-pages half of the doc 08 envelope (issue #105):
-        // notably 429 keeps its rate-limited slug - a bare 429 from the
+        // The status-code-pages half of the problem envelope: notably
+        // 429 keeps its rate-limited slug - a bare 429 from the
         // rate limiter must never read as "the request could not be read".
         var problem = StarterProblems.ForStatus(NewHttpContext(), statusCode);
 
@@ -129,7 +129,7 @@ public class StarterProblemsTests
     [Fact]
     public void ToProblemResult_WrapsTheEnvelope()
     {
-        var error = new Error(ErrorKind.NotFound, "trip.not_found", "message");
+        var error = new Error(ErrorKind.NotFound, "sample.not_found", "message");
 
         var result = error.ToProblemResult(NewHttpContext());
 

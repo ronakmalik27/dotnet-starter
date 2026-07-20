@@ -7,9 +7,9 @@ namespace Starter.Identity.GoogleSignIn;
 /// <summary>
 /// The issuer's discovery document and JWKS, via the standard
 /// Microsoft.IdentityModel ConfigurationManager - the same component the
-/// ASP.NET OIDC middleware uses underneath (doc 10 4.5 "standard
+/// ASP.NET OIDC middleware uses underneath ("standard
 /// middleware"; the redirect-based middleware itself does not fit the
-/// doc 08 POST /auth/google code-exchange shape). Singleton: the manager
+/// POST /auth/google code-exchange shape). Singleton: the manager
 /// caches the document and keys with automatic refresh, so per-request
 /// resolution costs no network round trip.
 /// </summary>

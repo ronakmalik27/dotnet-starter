@@ -8,9 +8,9 @@ using Xunit;
 namespace Starter.Identity.Tests;
 
 /// <summary>
-/// The FR-AUTH-02 numbers and the verify_email token factory: 24-hour
+/// The email-verification numbers and the verify_email token factory: 24-hour
 /// single-use tokens, the 7-day soft deadline, 3/h resend. Deterministic
-/// time throughout (doc 12 section 1: tests own time).
+/// time throughout (tests own time).
 /// </summary>
 public class EmailVerificationPolicyTests
 {
@@ -19,7 +19,7 @@ public class EmailVerificationPolicyTests
     [Fact]
     public void Numbers_MatchTheContract()
     {
-        // FR-AUTH-02: 24 h token, 7-day soft deadline; doc 10 4.6: 3/h.
+        // 24 h token, 7-day soft deadline; resend limited to 3/h.
         EmailVerificationPolicy.TokenLifetime.ShouldBe(TimeSpan.FromHours(24));
         EmailVerificationPolicy.SoftDeadline.ShouldBe(TimeSpan.FromDays(7));
         EmailVerificationPolicy.IssuancesPerWindow.ShouldBe(3);

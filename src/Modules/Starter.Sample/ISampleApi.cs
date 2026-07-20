@@ -3,7 +3,7 @@ using Starter.SharedKernel;
 namespace Starter.Sample;
 
 /// <summary>
-/// The only public surface of the Sample module (ADR-0011): the composition
+/// The only public surface of the Sample module: the composition
 /// layer (Starter.Api) composes HTTP endpoints over these commands - modules
 /// never self-host routes. Signatures use primitives and SharedKernel /
 /// platform contract types only, so the module exports no other public type
@@ -16,8 +16,8 @@ public interface ISampleApi
 {
     /// <summary>
     /// Creates a note and returns its id. Emits sample.note.created on the
-    /// transactional outbox in the same transaction as the row (INV-8), so
-    /// the demonstration of the outbox pattern is end to end. Failures are
+    /// transactional outbox in the same transaction as the row, so the
+    /// demonstration of the outbox pattern is end to end. Failures are
     /// Validation only (empty title or body).
     /// </summary>
     Task<Result<Guid>> CreateNoteAsync(string title, string body, CancellationToken cancellationToken);

@@ -5,9 +5,10 @@ using Xunit;
 namespace Starter.Architecture.Tests;
 
 /// <summary>
-/// INV-1 tripwire (doc 12 section 5): no float or double anywhere in the
-/// kernel's public surface. Story #20 extends the banned-API scan to every
-/// module; the kernel carries the money type, so it is guarded from day one.
+/// A tripwire: no float or double anywhere in the kernel's public surface.
+/// The banned-API scan extends to every module; guarding the kernel first
+/// catches numeric-precision mistakes at the foundation, before they can
+/// spread.
 /// </summary>
 public class SharedKernelSurfaceTests
 {
@@ -16,9 +17,7 @@ public class SharedKernelSurfaceTests
     [Fact]
     public void SharedKernel_PublicSurface_UsesNoFloatOrDouble()
     {
-        // Fully qualified so the reference is unambiguous whatever module
-        // namespaces are in scope.
-        var offenders = typeof(Starter.SharedKernel.Money).Assembly.GetExportedTypes()
+        var offenders = typeof(Starter.SharedKernel.Ids).Assembly.GetExportedTypes()
             .SelectMany(PublicSignatureTypes)
             .Where(BansViolated)
             .ToList();

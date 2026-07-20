@@ -1,20 +1,19 @@
 <Project>
   <!--
-    Central package management: every package version is pinned once here
-    (doc 13 section 9). Projects reference packages without versions.
+    Central package management: every package version is pinned once here.
+    Projects reference packages without versions.
   -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <!-- Without this, a CPM version is only a "requested floor" recorded
-         in packages.lock.json - NuGet does not actually enforce it on a
-         project that pulls the package in purely transitively (no direct
-         PackageReference of its own). #33/PR #257 hit this: modules that
-         never reference Microsoft.IdentityModel.JsonWebTokens directly
-         still get it transitively via Starter.Platform ->
-         Microsoft.AspNetCore.Authentication.JwtBearer, and without this
-         flag they silently resolved to 8.0.1 while the pinned/reviewed
-         version is 8.19.1 - exactly the split-version drift doc 13
-         section 9 exists to prevent (CodeRabbit review, PR #257). -->
+         in packages.lock.json - NuGet does not enforce it on a project that
+         pulls the package in purely transitively (no direct PackageReference
+         of its own). Example: a module that never references
+         Microsoft.IdentityModel.JsonWebTokens directly still gets it
+         transitively via Starter.Platform ->
+         Microsoft.AspNetCore.Authentication.JwtBearer, and without this flag
+         would silently resolve to JwtBearer's lower floor instead of the
+         pinned version - the split-version drift central pinning prevents. -->
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
@@ -25,7 +24,7 @@
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="CsCheck" Version="4.7.0" />
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
-    <!-- Auth (#33, doc 10 section 4): Argon2id password hashing (Konscious,
+    <!-- Auth: Argon2id password hashing (Konscious,
          MIT; the PHC string codec is ours so parameters live per-hash),
          ES256 JWT issuance (JsonWebTokens in the Identity module) and
          verification (JwtBearer in the platform auth stage). -->
@@ -42,13 +41,12 @@
     <!-- Starter.Identity.Tests references TokenValidationParameters/
          ECDsaSecurityKey/SecurityAlgorithms directly (AccessTokenIssuerTests):
          an explicit reference and pin, not a ride on the JsonWebTokens
-         transitive graph (CodeRabbit review, PR #257). -->
+         transitive graph. -->
     <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.19.1" />
     <!-- Microsoft.AspNetCore.Authentication.JwtBearer pulls these in
-         transitively; without an explicit pin they drift to whatever
-         floor JwtBearer itself declares (8.0.1), out of step with the
-         JsonWebTokens/Tokens pins above (CodeRabbit outside-diff review,
-         PR #257: same IdentityModel release train, kept in lockstep). -->
+         transitively; without an explicit pin they drift to whatever floor
+         JwtBearer itself declares, out of step with the JsonWebTokens/Tokens
+         pins above - same IdentityModel release train, kept in lockstep. -->
     <PackageVersion Include="Microsoft.IdentityModel.Protocols" Version="8.19.1" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.19.1" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
@@ -64,7 +62,7 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.9" />
-    <!-- Google OIDC (#35): typed HttpClients for the code exchange and
+    <!-- Google OIDC: typed HttpClients for the code exchange and
          discovery, and options binding from the Auth:Google section. -->
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.9" />
@@ -83,8 +81,8 @@
     <PackageVersion Include="TngTech.ArchUnitNET.xUnitV3" Version="0.13.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
-    <!-- The doc 08 section 4 implemented-routes drift gate reads
-         api/openapi.yaml from the integration suite (#33). -->
+    <!-- Available for a YAML-based test, e.g. an OpenAPI drift gate that
+         reads an api/openapi.yaml. -->
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 </Project>

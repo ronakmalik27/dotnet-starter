@@ -6,11 +6,11 @@ using Starter.Platform.Data;
 namespace Starter.Sample;
 
 /// <summary>
-/// The Sample module's bootstrap surface (ADR-0011): the single public
-/// entry the composition root calls. It contributes the module's DbContext
-/// and schema descriptor through the shared ADR-0011 path and registers the
-/// use-case slices behind ISampleApi. This is the worked example - copy the
-/// shape for a new module.
+/// The Sample module's bootstrap surface: the single public entry the
+/// composition root calls. It contributes the module's DbContext and
+/// schema descriptor through the shared module-bootstrap path and
+/// registers the use-case slices behind ISampleApi. This is the worked
+/// example - copy the shape for a new module.
 /// </summary>
 public static class SampleModule
 {

@@ -8,10 +8,10 @@ using ProblemDetails = Microsoft.AspNetCore.Mvc.ProblemDetails;
 namespace Starter.Platform.Http;
 
 /// <summary>
-/// The LLD section 1 problem+json error mapper: it wraps everything from
+/// The problem+json error mapper: it wraps everything from
 /// the endpoint filters inward, so no unhandled exception - a bug, per the
-/// LLD's exceptions-are-for-bugs rule - ever reaches a client as anything
-/// but the doc 08 envelope. The exception goes to the structured log with
+/// exceptions-are-for-bugs rule - ever reaches a client as anything
+/// but the problem envelope. The exception goes to the structured log with
 /// the traceId that is also in the response body, so a client report can
 /// be joined to the server-side stack trace.
 /// </summary>
@@ -39,8 +39,8 @@ public sealed class ProblemMappingMiddleware(
             // A client fault raised while reading the request (malformed
             // JSON body under ThrowOnBadRequest, oversized payload, ..):
             // the framework's status (400/413/431) is the truth - mapping
-            // it to a 500 would misreport a client error as a server bug
-            // (issue #105). Not counted as an unhandled exception.
+            // it to a 500 would misreport a client error as a server bug.
+            // Not counted as an unhandled exception.
             if (context.Response.HasStarted)
             {
                 ProblemLog.ResponseAlreadyStarted(logger, exception);
@@ -78,16 +78,16 @@ public sealed class ProblemMappingMiddleware(
     }
 }
 
-/// <summary>Pipeline registration for the problem mapper (LLD section 1).</summary>
+/// <summary>Pipeline registration for the problem mapper.</summary>
 public static class ProblemMappingApplicationBuilderExtensions
 {
     /// <summary>
-    /// Adds the exception-to-problem+json mapper. LLD section 1 position:
+    /// Adds the exception-to-problem+json mapper. Pipeline position:
     /// security headers and redacted logging register outside it, rate
     /// limiting and authentication inside it, and the endpoint filter chain
     /// (idempotency, authorization, validation) innermost. Register
     /// UseStarterStatusCodeProblems immediately after it: the two split the
-    /// doc 08 envelope duty (exceptions here, framework-generated bare
+    /// problem envelope duty (exceptions here, framework-generated bare
     /// statuses there).
     /// </summary>
     public static IApplicationBuilder UseStarterProblemMapping(this IApplicationBuilder app) =>
