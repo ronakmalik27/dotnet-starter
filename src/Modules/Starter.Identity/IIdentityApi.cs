@@ -74,10 +74,46 @@ public interface IIdentityApi
     /// Dual-method: the authenticated, currently passwordless
     /// account sets its first password (a second auth_methods row).
     /// Accounts that already hold a password method fail Conflict
-    /// (auth.password_change_not_implemented) until
-    /// change-password lands; the endpoint answers 501 for that code.
+    /// (auth.password_change_not_implemented); the endpoint routes a request
+    /// carrying a current password to <see cref="ChangePasswordAsync"/>
+    /// instead, so a caller never reaches this conflict on the happy path.
     /// </summary>
     Task<Result> SetPasswordAsync(Guid userId, string newPassword, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Change password: the authenticated account replaces its existing
+    /// password. The current password is verified against the stored hash;
+    /// any mismatch (wrong password, no password method, or a disabled one)
+    /// is the same generic Validation failure
+    /// (auth.current_password_incorrect) on the current-password field. On
+    /// success the hash is rotated and the token version is bumped, so every
+    /// other session is soft-revoked at its next refresh.
+    /// </summary>
+    Task<Result> ChangePasswordAsync(
+        Guid userId,
+        string currentPassword,
+        string newPassword,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Forgot password: mints a single-use reset token for an active account
+    /// and emails the reset link. Success is deliberately empty and
+    /// identical whether or not the account exists (no-account-enumeration,
+    /// exactly like <see cref="RegisterAsync"/>); issuance is rate-limited
+    /// per account. The raw token reaches the owner only through the emailed
+    /// link, never on the event spine.
+    /// </summary>
+    Task<Result> RequestPasswordResetAsync(string email, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reset password: consumes a single-use reset token (atomic) and sets
+    /// or replaces the account's password, creating the password method for
+    /// a previously password-less account. Bumps the token version, so every
+    /// session is soft-revoked at its next refresh. Unknown, used, and
+    /// expired tokens fail with one generic Validation error; a weak new
+    /// password fails the password policy without consuming the token.
+    /// </summary>
+    Task<Result> ResetPasswordAsync(string token, string newPassword, CancellationToken cancellationToken);
 
     /// <summary>
     /// Consumption: marks the verify_email token used (single

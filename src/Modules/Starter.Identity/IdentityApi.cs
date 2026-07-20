@@ -1,5 +1,7 @@
+using Starter.Identity.ChangePassword;
 using Starter.Identity.GoogleSignIn;
 using Starter.Identity.Login;
+using Starter.Identity.PasswordReset;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
 using Starter.Identity.SetPassword;
@@ -20,6 +22,9 @@ internal sealed class IdentityApi(
     RefreshHandler refresh,
     GoogleSignInHandler googleSignIn,
     SetPasswordHandler setPassword,
+    ChangePasswordHandler changePassword,
+    RequestPasswordResetHandler requestPasswordReset,
+    ResetPasswordHandler resetPassword,
     VerifyEmailHandler verifyEmail,
     VerificationStatusHandler verificationStatus,
     ResendVerificationHandler resendVerification,
@@ -56,6 +61,19 @@ internal sealed class IdentityApi(
 
     public Task<Result> SetPasswordAsync(Guid userId, string newPassword, CancellationToken cancellationToken) =>
         setPassword.HandleAsync(userId, newPassword, cancellationToken);
+
+    public Task<Result> ChangePasswordAsync(
+        Guid userId,
+        string currentPassword,
+        string newPassword,
+        CancellationToken cancellationToken) =>
+        changePassword.HandleAsync(userId, currentPassword, newPassword, cancellationToken);
+
+    public Task<Result> RequestPasswordResetAsync(string email, CancellationToken cancellationToken) =>
+        requestPasswordReset.HandleAsync(email, cancellationToken);
+
+    public Task<Result> ResetPasswordAsync(string token, string newPassword, CancellationToken cancellationToken) =>
+        resetPassword.HandleAsync(token, newPassword, cancellationToken);
 
     public Task<Result> VerifyEmailAsync(string token, CancellationToken cancellationToken) =>
         verifyEmail.HandleAsync(token, cancellationToken);

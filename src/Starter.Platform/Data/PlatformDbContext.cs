@@ -70,5 +70,16 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.Property(e => e.ResponseBody).HasColumnType("jsonb");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
         });
+
+        modelBuilder.Entity<ProcessedEventRow>(entity =>
+        {
+            // The reusable dedup ledger: pk (consumer, event_id) is the
+            // dedup key ProcessedEventStore claims against; processed_at is
+            // a default-now audit stamp. Insert-only.
+            entity.ToTable("processed_events");
+            entity.HasKey(e => new { e.Consumer, e.EventId });
+            entity.Property(e => e.Consumer).HasColumnType("text");
+            entity.Property(e => e.ProcessedAt).HasDefaultValueSql("now()");
+        });
     }
 }

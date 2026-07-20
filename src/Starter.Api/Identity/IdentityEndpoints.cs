@@ -10,10 +10,10 @@ namespace Starter.Api.Identity;
 
 /// <summary>
 /// HTTP composition for the Identity module's register / login / refresh,
-/// Google sign-in and first-password, and email-verification
-/// slices: routes, request shapes, transport concerns (the
-/// cookie split and the GET-renders / POST-consumes split), and
-/// the problem-details envelope for every failure. Business
+/// Google sign-in, first-password / change-password, forgot-password /
+/// reset-password, and email-verification slices: routes, request shapes,
+/// transport concerns (the cookie split and the GET-renders / POST-consumes
+/// split), and the problem-details envelope for every failure. Business
 /// rules live behind <see cref="IIdentityApi"/>; this layer never touches
 /// the module's internals.
 /// </summary>
@@ -39,6 +39,13 @@ public static class IdentityEndpoints
         // token: that authenticated identity is the "signed-in
         // confirmation" for linking Google into a verified account.
         auth.MapPost("/google", GoogleAsync);
+
+        // Anonymous password-reset pair. forgot-password is enumeration-safe
+        // (always the same 202); reset-password consumes a single-use token.
+        // Both are naturally retry-safe, so they ride outside the
+        // idempotency filter like the other anonymous mutating endpoints.
+        auth.MapPost("/forgot-password", ForgotPasswordAsync);
+        auth.MapPost("/reset-password", ResetPasswordAsync);
 
         // Outside the anonymous group: setting a password requires an
         // authenticated caller (an AllowAnonymous group would override a
@@ -233,15 +240,6 @@ public static class IdentityEndpoints
         HttpContext http,
         CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrEmpty(request.CurrentPassword))
-        {
-            // A current password means change-password, which
-            // has not landed; only the first-password case
-            // (passwordless Google-created accounts) has shipped.
-            return NotImplemented(
-                http, "Changing an existing password lands with the change-password flow; this endpoint currently only sets a first password.");
-        }
-
         if (string.IsNullOrWhiteSpace(request.NewPassword))
         {
             return TypedResults.Problem(StarterProblems.Validation(
@@ -254,13 +252,98 @@ public static class IdentityEndpoints
             return TypedResults.Problem(StarterProblems.Unauthorized(http));
         }
 
+        // A current password means change-password (verify the old, rotate
+        // the hash, soft-revoke other sessions); its absence means the
+        // first-password case for a password-less (e.g. Google-created)
+        // account.
+        if (!string.IsNullOrEmpty(request.CurrentPassword))
+        {
+            var change = await identity.ChangePasswordAsync(
+                userId.Value, request.CurrentPassword!, request.NewPassword!, cancellationToken);
+            return change.Match(
+                () => (IResult)Results.NoContent(),
+                error => error.Code switch
+                {
+                    // The generic "current password did not check out"
+                    // answer, named on its own field.
+                    "auth.current_password_incorrect" => TypedResults.Problem(StarterProblems.Validation(
+                        http, new Dictionary<string, string[]> { ["currentPassword"] = [error.Message] })),
+                    _ when error.Kind == Starter.SharedKernel.ErrorKind.Validation =>
+                        TypedResults.Problem(StarterProblems.Validation(
+                            http, new Dictionary<string, string[]> { ["newPassword"] = [error.Message] })),
+                    _ => error.ToProblemResult(http),
+                });
+        }
+
         var result = await identity.SetPasswordAsync(userId.Value, request.NewPassword!, cancellationToken);
         return result.Match(
             () => (IResult)Results.NoContent(),
             error => error.Code switch
             {
+                // A first-password call against an account that already has
+                // one: the change-password flow (a current password) is the
+                // right door.
                 "auth.password_change_not_implemented" => NotImplemented(
-                    http, "This account already has a password; changing it lands with the change-password flow."),
+                    http, "This account already has a password; send the current password to change it."),
+                _ when error.Kind == Starter.SharedKernel.ErrorKind.Validation =>
+                    TypedResults.Problem(StarterProblems.Validation(
+                        http, new Dictionary<string, string[]> { ["newPassword"] = [error.Message] })),
+                _ => error.ToProblemResult(http),
+            });
+    }
+
+    private static async Task<IResult> ForgotPasswordAsync(
+        ForgotPasswordRequest request,
+        IIdentityApi identity,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return TypedResults.Problem(StarterProblems.Validation(
+                http, new Dictionary<string, string[]> { ["email"] = ["Email is required."] }));
+        }
+
+        var result = await identity.RequestPasswordResetAsync(request.Email!, cancellationToken);
+        return result.Match(
+            // 202: the request is accepted. If the account exists, the reset
+            // email dispatches best-effort. The response is identical whether
+            // or not the account exists (no enumeration).
+            () => Results.Accepted(),
+            error => error.ToProblemResult(http));
+    }
+
+    private static async Task<IResult> ResetPasswordAsync(
+        ResetPasswordRequest request,
+        IIdentityApi identity,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrWhiteSpace(request.Token))
+        {
+            errors["token"] = ["Token is required."];
+        }
+
+        if (string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            errors["newPassword"] = ["A new password is required."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.Problem(StarterProblems.Validation(http, errors));
+        }
+
+        var result = await identity.ResetPasswordAsync(request.Token!, request.NewPassword!, cancellationToken);
+        return result.Match(
+            () => (IResult)Results.NoContent(),
+            error => error.Code switch
+            {
+                // Unknown / used / expired token: one generic answer on the
+                // token field, like verify-email.
+                "auth.reset_token_invalid" => TypedResults.Problem(StarterProblems.Validation(
+                    http, new Dictionary<string, string[]> { ["token"] = [error.Message] })),
                 _ when error.Kind == Starter.SharedKernel.ErrorKind.Validation =>
                     TypedResults.Problem(StarterProblems.Validation(
                         http, new Dictionary<string, string[]> { ["newPassword"] = [error.Message] })),
@@ -393,8 +476,18 @@ public sealed record GoogleSignInRequest(
     string? Nonce,
     string? DeviceLabel);
 
-/// <summary>PUT /auth/password body (only the first-password case has shipped).</summary>
+/// <summary>
+/// PUT /auth/password body. A present CurrentPassword selects the
+/// change-password path; its absence selects the first-password path for a
+/// password-less account.
+/// </summary>
 public sealed record SetPasswordRequest(string? CurrentPassword, string? NewPassword);
+
+/// <summary>POST /auth/forgot-password body.</summary>
+public sealed record ForgotPasswordRequest(string? Email);
+
+/// <summary>POST /auth/reset-password body.</summary>
+public sealed record ResetPasswordRequest(string? Token, string? NewPassword);
 
 /// <summary>POST /auth/register success - identical for new and existing emails.</summary>
 public sealed record RegisterResponse(bool Registered);

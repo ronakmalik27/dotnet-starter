@@ -36,12 +36,14 @@ internal sealed class OneTimeToken
 
 /// <summary>
 /// one_time_tokens.purpose values (the schema owns the full enum:
-/// verify_email / reset_password / change_email / revert_email). Only
-/// verify_email is in play this story; the reset and
-/// email-change flows add their constants with their stories - the
-/// purpose-discriminated table already accommodates them.
+/// verify_email / reset_password / change_email / revert_email).
+/// verify_email and reset_password are in play; the email-change flows add
+/// their constants with their stories - the purpose-discriminated table
+/// already accommodates them, so neither adds a token-table migration.
 /// </summary>
 internal static class OneTimeTokenPurpose
 {
     public const string VerifyEmail = "verify_email";
+
+    public const string ResetPassword = "reset_password";
 }

@@ -217,6 +217,10 @@ if (postgres is not null)
     builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Outbox"));
     builder.Services.AddSingleton<OutboxMetrics>();
     builder.Services.AddSingleton<OutboxWriter>();
+    // The reusable at-least-once dedup store: consumers claim an event id
+    // before acting on a non-transactional side effect. Singleton, built on
+    // the shared data source.
+    builder.Services.AddSingleton<ProcessedEventStore>();
     builder.Services.AddSingleton<OutboxMaintenance>();
     builder.Services.AddSingleton<IdempotencyMaintenance>();
     builder.Services.AddSingleton<MigrationsHealthCheck>();

@@ -1,8 +1,11 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using Starter.Identity.ChangePassword;
 using Starter.Identity.GoogleSignIn;
 using Starter.Identity.Login;
+using Starter.Identity.Notifications;
+using Starter.Identity.PasswordReset;
 using Starter.Identity.Passwords;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
@@ -10,6 +13,7 @@ using Starter.Identity.SetPassword;
 using Starter.Identity.Tokens;
 using Starter.Identity.Verification;
 using Starter.Platform.Data;
+using Starter.Platform.Events;
 
 namespace Starter.Identity;
 
@@ -62,20 +66,25 @@ public static class IdentityModule
         services.AddHttpClient<GoogleCodeExchanger>();
         services.AddScoped<GoogleIdTokenValidator>();
 
-        // The verify-email link template (Auth:Verification). Guarded for a
-        // null configuration exactly like the Google options above: the
-        // module still boots with the default template.
+        // The verify-email link template (Auth:Verification) and the
+        // password-reset link template (Auth:PasswordReset). Both guarded
+        // for a null configuration exactly like the Google options above:
+        // the module still boots with the default templates.
         if (configuration is not null)
         {
             services.Configure<VerificationEmailOptions>(
                 configuration.GetSection(VerificationEmailOptions.SectionName));
+            services.Configure<PasswordResetEmailOptions>(
+                configuration.GetSection(PasswordResetEmailOptions.SectionName));
         }
         else
         {
             services.AddOptions<VerificationEmailOptions>();
+            services.AddOptions<PasswordResetEmailOptions>();
         }
 
         services.AddScoped<VerificationEmailComposer>();
+        services.AddScoped<PasswordResetEmailComposer>();
 
         services.AddScoped<SessionIssuer>();
         services.AddScoped<RegisterHandler>();
@@ -83,11 +92,20 @@ public static class IdentityModule
         services.AddScoped<RefreshHandler>();
         services.AddScoped<GoogleSignInHandler>();
         services.AddScoped<SetPasswordHandler>();
+        services.AddScoped<ChangePasswordHandler>();
+        services.AddScoped<RequestPasswordResetHandler>();
+        services.AddScoped<ResetPasswordHandler>();
         services.AddScoped<VerifyEmailHandler>();
         services.AddScoped<VerificationStatusHandler>();
         services.AddScoped<ResendVerificationHandler>();
         services.AddScoped<VerifiedEmailQuery>();
         services.AddScoped<IIdentityApi, IdentityApi>();
+
+        // The account-security notifications consumer. Singleton and
+        // singleton-safe (it resolves the scoped context per consume). Only
+        // registered with persistence, since AddIdentityModule is composed
+        // inside the composition root's postgres block.
+        services.AddSingleton<IDomainEventConsumer, IdentityNotificationsConsumer>();
 
         return services;
     }
