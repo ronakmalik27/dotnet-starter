@@ -24,6 +24,24 @@ and enforced from day one.
   `IAuthorizationService`. The Sample module is the worked example: notes are
   owner-scoped, so only the creator can read or delete one (a non-owner gets
   403). Wired once in `AddStarterAuthorization`, no per-endpoint role checks.
+- **Cursor pagination.** The reusable keyset-pagination convention modules
+  copy: an opaque, URL-safe cursor over a `(CreatedAt desc, Id desc)` sort key,
+  a `CursorPage<T>` envelope, and a clamped page limit (default 20, max 100),
+  all in `Starter.Platform/Paging/`. The Sample module lists a caller's own
+  notes newest-first with it: `GET /api/v1/sample/notes` returns
+  `{ items, nextCursor }`, where `nextCursor` is null on the last page and a
+  malformed cursor is a 422. Keyset over offset, so page latency stays flat and
+  no row is skipped or repeated under concurrent writes; a composite
+  `(owner_user_id, created_at desc, id desc)` index makes each page a single
+  index range scan.
+- **Validated options.** Bindable settings are registered with
+  `AddOptions<T>().Bind(section).ValidateDataAnnotations().ValidateOnStart()`,
+  so a misconfiguration fails at startup rather than per request. Email, the
+  email-link templates, and the outbox tuning validate on boot (including a
+  custom `IValidateOptions` that checks each link template carries its
+  `{token}` placeholder). The shipped defaults all pass, so a zero-config host
+  still starts, and optional integrations (Google OIDC, SMTP auth) stay
+  optional.
 - **Email / notifications.** A pluggable `IEmailSender` seam with two transports:
   a console sender (the default - it logs the whole message, verification link
   included, so local development needs no mail server) and a MailKit SMTP sender
@@ -54,17 +72,20 @@ and enforced from day one.
 ## Layout
 
 ```
+AGENTS.md / CLAUDE.md     AI-agent operating contract: build/test, module boundaries, invariants.
+                          CLAUDE.md is a thin pointer to AGENTS.md.
 src/
   Starter.SharedKernel/   Domain primitives: Result/Error, Clock, Ids (UUIDv7). No dependencies.
   Starter.Platform/       Cross-cutting infra: persistence, outbox, idempotency, problem mapping,
                           JWT verification, email transport (Notifications/), DataProtection key
-                          persistence, and the security-headers / correlation-id middleware.
+                          persistence, cursor pagination (Paging/), and the
+                          security-headers / correlation-id middleware.
   Starter.Api/            HTTP endpoint composition over the module interfaces.
   Starter.App/            The host and composition root: DI wiring, the request pipeline, hosted services.
   Modules/
     Starter.Identity/     The authentication module.
     Starter.Sample/       The worked example - an authenticated, owner-scoped resource
-                          (notes). Copy this to start a new module.
+                          (notes) with a keyset-paginated list. Copy this to start a new module.
 tests/
   Starter.SharedKernel.Tests/
   Starter.Platform.Tests/

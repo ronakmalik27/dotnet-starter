@@ -41,4 +41,20 @@ public interface ISampleApi
     /// the read, then delete), so the module command deletes by id alone.
     /// </summary>
     Task<Result> DeleteNoteAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists <paramref name="ownerUserId"/>'s notes newest-first, keyset
+    /// (cursor) paginated on the sort key (CreatedAt desc, Id desc). Owner
+    /// scoping is intrinsic to the query - the owner is a filter, not an
+    /// authorization afterthought - so a caller only ever sees their own
+    /// notes. Pass a null or empty <paramref name="cursor"/> for the first
+    /// page; pass the returned NextCursor for each subsequent page, until it
+    /// comes back null on the last page. A malformed cursor is a Validation
+    /// failure the endpoint maps to 422 (never a 500). The success value is
+    /// primitives only - the note fields as a named tuple plus the opaque
+    /// next cursor - so the module surface stays exactly this interface plus
+    /// its bootstrap class.
+    /// </summary>
+    Task<Result<(IReadOnlyList<(Guid Id, string Title, string Body, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)> Items, string? NextCursor)>>
+        ListNotesAsync(Guid ownerUserId, int limit, string? cursor, CancellationToken cancellationToken);
 }

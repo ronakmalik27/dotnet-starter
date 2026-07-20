@@ -1,6 +1,7 @@
 using Starter.Sample.CreateNote;
 using Starter.Sample.DeleteNote;
 using Starter.Sample.GetNote;
+using Starter.Sample.ListNotes;
 using Starter.SharedKernel;
 
 namespace Starter.Sample;
@@ -13,7 +14,8 @@ namespace Starter.Sample;
 internal sealed class SampleApi(
     CreateNoteHandler createNote,
     GetNoteHandler getNote,
-    DeleteNoteHandler deleteNote) : ISampleApi
+    DeleteNoteHandler deleteNote,
+    ListNotesHandler listNotes) : ISampleApi
 {
     public Task<Result<Guid>> CreateNoteAsync(
         Guid ownerUserId,
@@ -28,4 +30,8 @@ internal sealed class SampleApi(
 
     public Task<Result> DeleteNoteAsync(Guid id, CancellationToken cancellationToken) =>
         deleteNote.HandleAsync(id, cancellationToken);
+
+    public Task<Result<(IReadOnlyList<(Guid Id, string Title, string Body, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)> Items, string? NextCursor)>>
+        ListNotesAsync(Guid ownerUserId, int limit, string? cursor, CancellationToken cancellationToken) =>
+        listNotes.HandleAsync(ownerUserId, limit, cursor, cancellationToken);
 }

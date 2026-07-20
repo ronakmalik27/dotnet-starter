@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Starter.Identity.Verification;
 
 /// <summary>
@@ -5,7 +7,9 @@ namespace Starter.Identity.Verification;
 /// UrlTemplate is the front-end verify page the recipient opens; its
 /// {token} placeholder is replaced with the URL-encoded raw token when the
 /// email is composed. The default points at a local SPA dev server; a real
-/// deployment overrides it with its own web origin.
+/// deployment overrides it with its own web origin. The template is
+/// validated at startup: non-empty (data annotation) and carrying the
+/// {token} placeholder (the custom <see cref="EmailLinkTemplateValidator"/>).
 /// </summary>
 internal sealed class VerificationEmailOptions
 {
@@ -15,5 +19,6 @@ internal sealed class VerificationEmailOptions
     /// The verify-email link template. The literal "{token}" is replaced
     /// with the URL-encoded verification token.
     /// </summary>
+    [Required]
     public string UrlTemplate { get; set; } = "https://localhost:3000/verify-email?token={token}";
 }

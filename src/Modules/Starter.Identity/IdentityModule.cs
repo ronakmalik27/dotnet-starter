@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Starter.Identity.ChangePassword;
 using Starter.Identity.GoogleSignIn;
@@ -69,19 +70,28 @@ public static class IdentityModule
         // The verify-email link template (Auth:Verification) and the
         // password-reset link template (Auth:PasswordReset). Both guarded
         // for a null configuration exactly like the Google options above:
-        // the module still boots with the default templates.
+        // the module still boots with the default templates. Both are
+        // validated options - the data annotation ([Required]) plus the
+        // custom {token}-placeholder rule below, checked at startup
+        // (ValidateOnStart). The defaults satisfy both, so a zero-config
+        // host still boots.
+        var verification = services.AddOptions<VerificationEmailOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        var passwordReset = services.AddOptions<PasswordResetEmailOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
         if (configuration is not null)
         {
-            services.Configure<VerificationEmailOptions>(
-                configuration.GetSection(VerificationEmailOptions.SectionName));
-            services.Configure<PasswordResetEmailOptions>(
-                configuration.GetSection(PasswordResetEmailOptions.SectionName));
+            verification.Bind(configuration.GetSection(VerificationEmailOptions.SectionName));
+            passwordReset.Bind(configuration.GetSection(PasswordResetEmailOptions.SectionName));
         }
-        else
-        {
-            services.AddOptions<VerificationEmailOptions>();
-            services.AddOptions<PasswordResetEmailOptions>();
-        }
+
+        // One custom validator, richer than the annotations, covering both
+        // link templates: each must carry the {token} placeholder. Registered
+        // as an IValidateOptions for each type so ValidateOnStart runs it.
+        services.AddSingleton<IValidateOptions<VerificationEmailOptions>, EmailLinkTemplateValidator>();
+        services.AddSingleton<IValidateOptions<PasswordResetEmailOptions>, EmailLinkTemplateValidator>();
 
         services.AddScoped<VerificationEmailComposer>();
         services.AddScoped<PasswordResetEmailComposer>();

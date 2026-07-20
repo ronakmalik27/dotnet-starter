@@ -27,9 +27,14 @@ internal sealed class SampleDbContext(DbContextOptions<SampleDbContext> options)
         {
             note.Property(n => n.Title).HasMaxLength(200);
             note.Property(n => n.Body).HasColumnType("text");
-            // Owners list their own notes, so the owner column is indexed
-            // (snake_case owner_user_id via the naming convention).
-            note.HasIndex(n => n.OwnerUserId);
+            // Owners list their own notes newest-first, keyset-paginated on
+            // (created_at desc, id desc). The composite index matches that
+            // access path exactly - the owner equality prefix plus the sort
+            // key - so a page is a single index range scan, no sort, no offset
+            // skip. It supersedes the plain owner index (owner_user_id is its
+            // leading column, so owner-equality lookups still hit it).
+            note.HasIndex(n => new { n.OwnerUserId, n.CreatedAt, n.Id })
+                .IsDescending(false, true, true);
         });
     }
 }

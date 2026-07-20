@@ -214,7 +214,13 @@ if (postgres is not null)
     // with none, events still reach the domain_events spine and the
     // dispatcher idles as leader.
     builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(postgres));
-    builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Outbox"));
+    // Validated options: the numeric-range annotations are checked at startup,
+    // so a bad Outbox override fails the boot rather than the dispatcher; the
+    // defaults satisfy every annotation.
+    builder.Services.AddOptions<OutboxOptions>()
+        .Bind(builder.Configuration.GetSection("Outbox"))
+        .ValidateDataAnnotations()
+        .ValidateOnStart();
     builder.Services.AddSingleton<OutboxMetrics>();
     builder.Services.AddSingleton<OutboxWriter>();
     // The reusable at-least-once dedup store: consumers claim an event id

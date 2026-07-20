@@ -19,7 +19,14 @@ public static class NotificationsRegistration
         ArgumentNullException.ThrowIfNull(configuration);
 
         var section = configuration.GetSection(EmailOptions.SectionName);
-        services.Configure<EmailOptions>(section);
+        // Validated options: bind, check the data annotations (plus the nested
+        // SMTP annotations via EmailOptions.Validate), and fail fast at startup
+        // rather than per-request. The defaults all pass, so a zero-config host
+        // still boots on the console transport.
+        services.AddOptions<EmailOptions>()
+            .Bind(section)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         var provider = section.GetValue(nameof(EmailOptions.Provider), EmailProvider.Console);
         if (provider == EmailProvider.Smtp)

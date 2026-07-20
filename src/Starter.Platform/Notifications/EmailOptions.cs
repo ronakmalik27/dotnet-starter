@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Starter.Platform.Notifications;
 
 /// <summary>The email transports the template ships with.</summary>
@@ -17,8 +19,11 @@ public enum EmailProvider
 /// from the logs. Switch Provider to smtp and fill Smtp for real delivery.
 /// The SMTP password lives only in its designated home (dotnet user-secrets
 /// locally, a managed secret store in production) - never a default here.
+/// The data annotations are enforced at startup (ValidateOnStart), so a
+/// misconfigured host fails fast instead of per-request; the defaults all
+/// satisfy them, so a zero-config host still boots.
 /// </summary>
-public sealed class EmailOptions
+public sealed class EmailOptions : IValidatableObject
 {
     public const string SectionName = "Email";
 
@@ -26,22 +31,42 @@ public sealed class EmailOptions
     public EmailProvider Provider { get; set; } = EmailProvider.Console;
 
     /// <summary>The From address stamped on every message.</summary>
+    [Required]
+    [EmailAddress]
     public string FromAddress { get; set; } = "no-reply@starter.example";
 
     /// <summary>The From display name stamped on every message.</summary>
+    [Required]
     public string FromName { get; set; } = "Starter";
 
     /// <summary>SMTP connection settings; used only when Provider is smtp.</summary>
     public SmtpOptions Smtp { get; set; } = new();
+
+    /// <summary>
+    /// Reflection-based data-annotation validation (ValidateDataAnnotations)
+    /// checks only this object's own properties - it does not recurse into
+    /// nested option objects. So the nested SMTP settings are validated here
+    /// explicitly; their [Required] / [Range] annotations are enforced only
+    /// through this pass.
+    /// </summary>
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        var results = new List<ValidationResult>();
+        Validator.TryValidateObject(
+            Smtp, new ValidationContext(Smtp), results, validateAllProperties: true);
+        return results;
+    }
 }
 
 /// <summary>SMTP connection settings for the smtp provider.</summary>
 public sealed class SmtpOptions
 {
     /// <summary>The SMTP server host.</summary>
+    [Required]
     public string Host { get; set; } = "localhost";
 
     /// <summary>The SMTP submission port (587 is the STARTTLS default).</summary>
+    [Range(1, 65535)]
     public int Port { get; set; } = 587;
 
     /// <summary>The SMTP username; null or empty means send unauthenticated.</summary>

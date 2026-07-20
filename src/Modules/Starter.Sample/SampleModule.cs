@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Starter.Sample.CreateNote;
 using Starter.Sample.DeleteNote;
 using Starter.Sample.GetNote;
+using Starter.Sample.ListNotes;
 using Starter.Platform.Data;
 
 namespace Starter.Sample;
@@ -32,6 +33,7 @@ public static class SampleModule
         services.AddScoped<CreateNoteHandler>();
         services.AddScoped<GetNoteHandler>();
         services.AddScoped<DeleteNoteHandler>();
+        services.AddScoped<ListNotesHandler>();
         services.AddScoped<ISampleApi, SampleApi>();
 
         return services;

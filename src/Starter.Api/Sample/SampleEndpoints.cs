@@ -5,19 +5,22 @@ using Microsoft.AspNetCore.Routing;
 using Starter.Sample;
 using Starter.Platform.Auth;
 using Starter.Platform.Http;
+using Starter.Platform.Paging;
 
 namespace Starter.Api.Sample;
 
 /// <summary>
-/// HTTP composition for the Sample module's create / get / delete slices: the
-/// worked example of an authenticated, owner-scoped resource. Every note is
-/// owned by the caller who created it; reads and deletes are authorized per
-/// request against that owner with the resource-based
+/// HTTP composition for the Sample module's list / create / get / delete
+/// slices: the worked example of an authenticated, owner-scoped resource.
+/// Every note is owned by the caller who created it; reads and deletes are
+/// authorized per request against that owner with the resource-based
 /// <see cref="ResourceOperations"/> requirements - the access token carries
 /// no roles, so authorization is resolved against the entity, not the claim.
-/// Business rules live behind <see cref="ISampleApi"/>; this layer never
-/// touches the module's internals. It maps onto a route group the composition
-/// root has already bound to an API version, so the full path is
+/// The collection list is owner-scoped at the query and keyset (cursor)
+/// paginated - the pagination convention for a module collection. Business
+/// rules live behind <see cref="ISampleApi"/>; this layer never touches the
+/// module's internals. It maps onto a route group the composition root has
+/// already bound to an API version, so the full path is
 /// <c>/api/v1/sample/notes</c>.
 /// </summary>
 public static class SampleEndpoints
@@ -26,16 +29,48 @@ public static class SampleEndpoints
     {
         ArgumentNullException.ThrowIfNull(versionedGroup);
 
-        // Owner-scoped module: every route requires an authenticated caller,
-        // and reads/deletes then authorize against the note's owner. This is
-        // the pattern to copy for a real module's write and read gates.
+        // Owner-scoped module: every route requires an authenticated caller.
+        // The list is owner-scoped at the query; reads/deletes authorize
+        // against the note's owner. This is the pattern to copy for a real
+        // module's collection, write, and read gates.
         var notes = versionedGroup.MapGroup("/sample/notes");
 
+        notes.MapGet("/", ListNotesAsync).RequireAuthorization();
         notes.MapPost("/", CreateNoteAsync).RequireAuthorization();
         notes.MapGet("/{id:guid}", GetNoteByIdAsync).RequireAuthorization();
         notes.MapDelete("/{id:guid}", DeleteNoteAsync).RequireAuthorization();
 
         return versionedGroup;
+    }
+
+    private static async Task<IResult> ListNotesAsync(
+        ISampleApi sample,
+        HttpContext http,
+        CancellationToken cancellationToken,
+        int? limit = null,
+        string? cursor = null)
+    {
+        // RequireAuthorization gates the route; the list is the caller's own
+        // notes, so the owner is the authenticated caller - never a query
+        // parameter. Fail closed if a token somehow lacks a parseable sub.
+        var ownerUserId = http.User.GetUserId();
+        if (ownerUserId is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var page = await sample.ListNotesAsync(
+            ownerUserId.Value, PageLimit.Clamp(limit), cursor, cancellationToken);
+        if (page.IsFailure)
+        {
+            // A malformed cursor is a Validation failure -> 422.
+            return page.Error.ToProblemResult(http);
+        }
+
+        var items = page.Value.Items
+            .Select(note => new NoteResponse(note.Id, note.Title, note.Body, note.CreatedAt, note.UpdatedAt))
+            .ToList();
+        return Results.Ok(new CursorPage<NoteResponse>(items, page.Value.NextCursor));
     }
 
     private static async Task<IResult> CreateNoteAsync(

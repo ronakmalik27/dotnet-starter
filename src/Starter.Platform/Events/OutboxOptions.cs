@@ -1,8 +1,12 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Starter.Platform.Events;
 
 /// <summary>
 /// Dispatcher tuning. Defaults are the documented values; tests
 /// shrink the timings, production overrides nothing without a design change.
+/// The numeric bounds are data annotations enforced at startup
+/// (ValidateOnStart); the defaults satisfy them.
 /// </summary>
 public sealed class OutboxOptions
 {
@@ -13,9 +17,11 @@ public sealed class OutboxOptions
     public TimeSpan SlowPollInterval { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>Claim batch size (limit 100).</summary>
+    [Range(1, 100)]
     public int BatchSize { get; init; } = 100;
 
     /// <summary>Attempts beyond this park the row (attempts &gt; 8).</summary>
+    [Range(1, 100)]
     public int MaxAttempts { get; init; } = 8;
 
     /// <summary>
