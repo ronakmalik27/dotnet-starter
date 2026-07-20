@@ -12,7 +12,11 @@ namespace Starter.Sample.CreateNote;
 /// </summary>
 internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox, Clock clock)
 {
-    public async Task<Result<Guid>> HandleAsync(string title, string body, CancellationToken cancellationToken)
+    public async Task<Result<Guid>> HandleAsync(
+        Guid ownerUserId,
+        string title,
+        string body,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(title);
         ArgumentNullException.ThrowIfNull(body);
@@ -32,6 +36,7 @@ internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox,
         var note = new Note
         {
             Id = Ids.NewId(now),
+            OwnerUserId = ownerUserId,
             Title = title,
             Body = body,
             CreatedAt = now,

@@ -156,6 +156,9 @@ public static class StarterProblems
         return statusCode switch
         {
             StatusCodes.Status401Unauthorized => Unauthorized(httpContext),
+            StatusCodes.Status403Forbidden => Create(
+                httpContext, statusCode, ProblemTypes.Forbidden,
+                "You do not have access to this resource.", detail: null),
             StatusCodes.Status404NotFound => Create(
                 httpContext, statusCode, ProblemTypes.NotFound, NotFoundTitle, detail: null),
             StatusCodes.Status405MethodNotAllowed => Create(

@@ -107,6 +107,7 @@ public class StarterProblemsTests
 
     [Theory]
     [InlineData(StatusCodes.Status401Unauthorized, ProblemTypes.Unauthorized)]
+    [InlineData(StatusCodes.Status403Forbidden, ProblemTypes.Forbidden)]
     [InlineData(StatusCodes.Status404NotFound, ProblemTypes.NotFound)]
     [InlineData(StatusCodes.Status405MethodNotAllowed, ProblemTypes.MethodNotAllowed)]
     [InlineData(StatusCodes.Status415UnsupportedMediaType, ProblemTypes.UnsupportedMediaType)]

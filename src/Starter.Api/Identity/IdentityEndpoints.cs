@@ -201,7 +201,10 @@ public static class IdentityEndpoints
             request.CodeVerifier!,
             request.RedirectUri!,
             request.Nonce!,
-            AuthenticatedUserId(http),
+            // Google is anonymous-but-may-carry-token: the JWT middleware ran
+            // even on this AllowAnonymous route, so a valid bearer yields the
+            // sub - the signed-in confirmation for linking into a verified account.
+            http.User.GetUserId(),
             DeviceLabel(request.DeviceLabel, http),
             ClientIp(http),
             cancellationToken);
@@ -245,7 +248,7 @@ public static class IdentityEndpoints
                 http, new Dictionary<string, string[]> { ["newPassword"] = ["A new password is required."] }));
         }
 
-        var userId = AuthenticatedUserId(http);
+        var userId = http.User.GetUserId();
         if (userId is null)
         {
             return TypedResults.Problem(StarterProblems.Unauthorized(http));
@@ -263,16 +266,6 @@ public static class IdentityEndpoints
                         http, new Dictionary<string, string[]> { ["newPassword"] = [error.Message] })),
                 _ => error.ToProblemResult(http),
             });
-    }
-
-    private static Guid? AuthenticatedUserId(HttpContext http)
-    {
-        // The JWT middleware ran even on AllowAnonymous routes; a valid
-        // bearer token yields the sub claim.
-        var sub = http.User.Identity?.IsAuthenticated == true
-            ? http.User.FindFirst(StarterClaims.Sub)?.Value
-            : null;
-        return Guid.TryParse(sub, out var userId) ? userId : null;
     }
 
     private static ProblemHttpResult LinkConfirmationRequired(HttpContext http, string detail)
@@ -330,13 +323,13 @@ public static class IdentityEndpoints
     {
         // The JWT middleware authenticated the caller; the sub claim is
         // the account. Fail closed if it is somehow absent.
-        var subject = http.User.FindFirst(StarterClaims.Sub)?.Value;
-        if (!Guid.TryParse(subject, out var userId))
+        var userId = http.User.GetUserId();
+        if (userId is null)
         {
             return TypedResults.Problem(StarterProblems.Unauthorized(http));
         }
 
-        var result = await identity.ResendVerificationEmailAsync(userId, cancellationToken);
+        var result = await identity.ResendVerificationEmailAsync(userId.Value, cancellationToken);
         return result.Match(
             // 202: issuance is accepted; the module dispatches the fresh
             // verification email best-effort through the email transport, so

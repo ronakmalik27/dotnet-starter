@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -95,6 +96,38 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(PostgresKey, null);
         Environment.SetEnvironmentVariable(MigrateKey, null);
         Environment.SetEnvironmentVariable(SigningKeyKey, null);
+    }
+
+    /// <summary>
+    /// Registers an account, verifies its email from the captured link, logs
+    /// in, and returns the access token - the full password onboarding
+    /// (AuthFlowTests, condensed) so a test that needs an authenticated caller
+    /// gets a bearer token in one call. Use a unique email per caller so the
+    /// shared mailbox stays unambiguous.
+    /// </summary>
+    public async Task<string> RegisterVerifyLoginAsync(
+        string email,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        var register = await Client.PostAsJsonAsync(
+            "/api/v1/auth/register", new { email, password }, cancellationToken);
+        register.EnsureSuccessStatusCode();
+
+        var verificationEmail = Emails.Sent.Last(message => message.To == email);
+        var token = HttpTestHelpers.ExtractVerificationToken(verificationEmail);
+
+        var verify = await Client.PostAsJsonAsync(
+            "/api/v1/auth/verify-email", new { token }, cancellationToken);
+        verify.EnsureSuccessStatusCode();
+
+        var login = await Client.PostAsJsonAsync(
+            "/api/v1/auth/login", new { email, password }, cancellationToken);
+        login.EnsureSuccessStatusCode();
+
+        using var doc = await HttpTestHelpers.ReadJsonAsync(login, cancellationToken);
+        return doc.RootElement.GetProperty("accessToken").GetString()
+            ?? throw new InvalidOperationException("Login returned no access token.");
     }
 
     /// <summary>Opens a fresh connection to the container database.</summary>

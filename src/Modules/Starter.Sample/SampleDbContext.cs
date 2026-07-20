@@ -27,6 +27,9 @@ internal sealed class SampleDbContext(DbContextOptions<SampleDbContext> options)
         {
             note.Property(n => n.Title).HasMaxLength(200);
             note.Property(n => n.Body).HasColumnType("text");
+            // Owners list their own notes, so the owner column is indexed
+            // (snake_case owner_user_id via the naming convention).
+            note.HasIndex(n => n.OwnerUserId);
         });
     }
 }

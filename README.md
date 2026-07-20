@@ -17,6 +17,13 @@ and enforced from day one.
   and nonce), refresh-token sessions with reuse detection, and email
   verification (register and resend send the verification link through the email
   transport below).
+- **Resource-based authorization.** The access token carries no roles or scopes
+  by design; permission is resolved per request against the entity. Mark an
+  entity `IOwnedResource`, then authorize an operation
+  (`ResourceOperations.Read` / `Update` / `Delete`) against its owner with
+  `IAuthorizationService`. The Sample module is the worked example: notes are
+  owner-scoped, so only the creator can read or delete one (a non-owner gets
+  403). Wired once in `AddStarterAuthorization`, no per-endpoint role checks.
 - **Email / notifications.** A pluggable `IEmailSender` seam with two transports:
   a console sender (the default - it logs the whole message, verification link
   included, so local development needs no mail server) and a MailKit SMTP sender
@@ -56,7 +63,8 @@ src/
   Starter.App/            The host and composition root: DI wiring, the request pipeline, hosted services.
   Modules/
     Starter.Identity/     The authentication module.
-    Starter.Sample/       The worked example - copy this to start a new module.
+    Starter.Sample/       The worked example - an authenticated, owner-scoped resource
+                          (notes). Copy this to start a new module.
 tests/
   Starter.SharedKernel.Tests/
   Starter.Platform.Tests/
@@ -178,6 +186,24 @@ The unit and architecture suites need no database. The integration suite
 `WebApplicationFactory` against a Postgres Testcontainer, so it needs a running
 Docker daemon; `dotnet test Starter.slnx` runs it alongside the rest. CI runs it
 in its own job (GitHub-hosted runners provide Docker).
+
+## Releasing
+
+Pushing a version tag `vX.Y.Z` triggers `.github/workflows/cd.yml`, which builds
+the container image (the repo `Dockerfile`) and pushes it to GitHub Container
+Registry as `ghcr.io/<owner>/<repo>:vX.Y.Z` (plus a commit-sha tag).
+
+```
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The `deploy` job is a clearly-marked stub: it runs on a `production` GitHub
+environment (so branch/environment protection can gate it) and only echoes the
+image to roll out. Replace its single step with your target - `kubectl`/`helm`,
+a PaaS deploy CLI, or SSH - as the comments in the workflow show. The full
+release/versioning process (changelogs, tag conventions, sign-off) lives in the
+companion `project-starter` template's release/versioning doc.
 
 ## License
 

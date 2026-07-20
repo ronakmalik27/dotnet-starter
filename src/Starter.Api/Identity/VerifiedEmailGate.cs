@@ -40,14 +40,14 @@ public static class VerifiedEmailGate
         // RequireAuthorization already ran for a correctly-composed
         // endpoint; this guard makes the gate itself fail closed when it
         // is composed onto an anonymous route by mistake.
-        var subject = http.User.FindFirst(StarterClaims.Sub)?.Value;
-        if (!Guid.TryParse(subject, out var userId))
+        var userId = http.User.GetUserId();
+        if (userId is null)
         {
             return TypedResults.Problem(StarterProblems.Unauthorized(http));
         }
 
         var identity = http.RequestServices.GetRequiredService<IIdentityApi>();
-        if (!await identity.IsEmailVerifiedAsync(userId, http.RequestAborted))
+        if (!await identity.IsEmailVerifiedAsync(userId.Value, http.RequestAborted))
         {
             return TypedResults.Problem(StarterProblems.VerificationRequired(http));
         }

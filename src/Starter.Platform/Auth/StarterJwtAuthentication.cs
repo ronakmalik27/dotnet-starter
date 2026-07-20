@@ -54,7 +54,7 @@ public static class StarterJwtAuthentication
                     NameClaimType = StarterClaims.Sub,
                 };
             });
-        services.AddAuthorization();
+        services.AddStarterAuthorization();
         return services;
     }
 }

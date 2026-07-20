@@ -46,6 +46,27 @@ internal static class HttpTestHelpers
     }
 
     /// <summary>
+    /// Reads the sub claim (the user id) out of an access JWT without
+    /// verifying its signature: base64url-decode the payload segment and read
+    /// "sub". For test assertions only - never a substitute for verification.
+    /// </summary>
+    public static Guid ReadSubject(string accessToken)
+    {
+        ArgumentNullException.ThrowIfNull(accessToken);
+
+        var segments = accessToken.Split('.');
+        if (segments.Length < 2)
+        {
+            throw new InvalidOperationException("The access token is not a JWT.");
+        }
+
+        var payload = segments[1].Replace('-', '+').Replace('_', '/');
+        payload = payload.PadRight(payload.Length + ((4 - (payload.Length % 4)) % 4), '=');
+        using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
+        return Guid.Parse(doc.RootElement.GetProperty("sub").GetString()!);
+    }
+
+    /// <summary>
     /// Pulls the raw verification token out of a captured email by reading
     /// the token query parameter from the verify link in the text body.
     /// </summary>

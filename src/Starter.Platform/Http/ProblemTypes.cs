@@ -23,6 +23,16 @@ public static class ProblemTypes
     /// <summary>401: missing or invalid authentication.</summary>
     public const string Unauthorized = "starter:unauthorized";
 
+    /// <summary>
+    /// 403: the caller is authenticated but not permitted to act on this
+    /// resource - the resource-based owner check (ResourceOperations against
+    /// an IOwnedResource) did not grant access. Distinct from the 404-for-
+    /// non-membership rule: an existence-sensitive resource returns 404 to
+    /// avoid confirming it exists, whereas a non-sensitive owned resource
+    /// answers 403 honestly.
+    /// </summary>
+    public const string Forbidden = "starter:forbidden";
+
     /// <summary>429: rate limit exceeded.</summary>
     public const string RateLimited = "starter:rate-limited";
 
