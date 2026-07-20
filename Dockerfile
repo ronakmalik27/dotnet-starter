@@ -4,7 +4,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY global.json Directory.Build.props Directory.Packages.props ./
+# .editorconfig carries the analyzer severities (the build treats warnings as
+# errors), so it must be present or a clean container build diverges from local.
+COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
 COPY src/ src/
 RUN dotnet restore src/Starter.App/Starter.App.csproj
 RUN dotnet publish src/Starter.App/Starter.App.csproj -c Release -o /app --no-restore

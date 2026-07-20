@@ -24,7 +24,6 @@ docker-compose.yml
 **/*.md
 LICENSE
 
-# Local Python/AEOS tooling caches
-.aeos/
+# Local tooling caches
 .venv/
 __pycache__/
