@@ -62,6 +62,21 @@ public static class IdentityModule
         services.AddHttpClient<GoogleCodeExchanger>();
         services.AddScoped<GoogleIdTokenValidator>();
 
+        // The verify-email link template (Auth:Verification). Guarded for a
+        // null configuration exactly like the Google options above: the
+        // module still boots with the default template.
+        if (configuration is not null)
+        {
+            services.Configure<VerificationEmailOptions>(
+                configuration.GetSection(VerificationEmailOptions.SectionName));
+        }
+        else
+        {
+            services.AddOptions<VerificationEmailOptions>();
+        }
+
+        services.AddScoped<VerificationEmailComposer>();
+
         services.AddScoped<SessionIssuer>();
         services.AddScoped<RegisterHandler>();
         services.AddScoped<LoginHandler>();

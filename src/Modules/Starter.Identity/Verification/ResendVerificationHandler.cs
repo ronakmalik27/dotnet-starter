@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Starter.Identity.Domain;
 using Starter.SharedKernel;
 
@@ -14,7 +15,11 @@ namespace Starter.Identity.Verification;
 /// already-verified account resends nothing and still succeeds: a stale
 /// banner's tap must not error after verification landed in another tab.
 /// </summary>
-internal sealed class ResendVerificationHandler(IdentityDbContext db, Clock clock)
+internal sealed class ResendVerificationHandler(
+    IdentityDbContext db,
+    VerificationEmailComposer verificationEmail,
+    ILogger<ResendVerificationHandler> logger,
+    Clock clock)
 {
     private static readonly Error ResendLimited = new(
         ErrorKind.RateLimited,
@@ -55,16 +60,27 @@ internal sealed class ResendVerificationHandler(IdentityDbContext db, Clock cloc
             return Result.Failure(ResendLimited);
         }
 
-        var (row, _) = EmailVerificationPolicy.IssueVerifyEmailToken(userId, now);
+        var (row, rawToken) = EmailVerificationPolicy.IssueVerifyEmailToken(userId, now);
         db.OneTimeTokens.Add(row);
         await db.SaveChangesAsync(cancellationToken);
 
-        // The raw token is dropped here by design, exactly as at
-        // registration: the email dispatch channel is the notifications
-        // story's work, and the privacy rule keeps raw
-        // secrets off the domain_events spine. The dispatch hook slots in
-        // where the raw token is still in hand - this method and
-        // RegisterHandler - when that story lands.
+        // Dispatch the fresh token best-effort, the same hook as
+        // RegisterHandler: the raw token is still in hand here and the
+        // privacy rule keeps it off the domain_events spine. A send failure
+        // must not fail the resend - the token is persisted and a later
+        // resend re-mints. A production system would move dispatch to a
+        // transactional email-outbox for delivery guarantees and uniform
+        // timing; this inline post-save send is the starter-appropriate
+        // version.
+        try
+        {
+            await verificationEmail.SendVerificationEmailAsync(user.Email, rawToken, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            VerificationEmailLog.DispatchFailed(logger, exception);
+        }
+
         return Result.Success();
     }
 }

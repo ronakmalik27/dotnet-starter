@@ -16,6 +16,10 @@
     <!-- Microsoft.Extensions.Hosting.Abstractions and .Options ride the
          Microsoft.AspNetCore.App framework reference (NU1510). -->
     <PackageReference Include="EFCore.NamingConventions" />
+    <!-- Notifications/ SMTP transport (the console transport needs no package). -->
+    <PackageReference Include="MailKit" />
+    <!-- DataProtection key persistence to the platform DbContext. -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
     <!-- Auth/ hosts the authentication stage: local ES256 verification. -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Npgsql" />

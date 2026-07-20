@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Starter.Identity.Domain;
 using Starter.Identity.Passwords;
@@ -19,6 +20,8 @@ internal sealed class RegisterHandler(
     IdentityDbContext db,
     PasswordPolicy policy,
     OutboxWriter outbox,
+    VerificationEmailComposer verificationEmail,
+    ILogger<RegisterHandler> logger,
     Clock clock)
 {
     public async Task<Result> HandleAsync(string email, string password, CancellationToken cancellationToken)
@@ -87,13 +90,10 @@ internal sealed class RegisterHandler(
         });
 
         // The first verify_email token issues with the account
-        // (24 h, single-use). The raw token is dropped for
-        // now: email dispatch is the notifications story's channel,
-        // and the privacy rule keeps raw secrets off the
-        // domain_events spine - the dispatch hook slots in here, where
-        // the raw token is still in hand, when that story lands. Until
-        // then the resend endpoint is the way to mint a fresh one.
-        var (verificationToken, _) = EmailVerificationPolicy.IssueVerifyEmailToken(newUser.Id, now);
+        // (24 h, single-use). The raw token is kept in hand for the
+        // post-commit email dispatch below; the privacy rule keeps raw
+        // secrets off the domain_events spine, so it never rides the outbox.
+        var (verificationToken, rawToken) = EmailVerificationPolicy.IssueVerifyEmailToken(newUser.Id, now);
         db.OneTimeTokens.Add(verificationToken);
 
         await outbox.EnqueueAsync(
@@ -109,8 +109,27 @@ internal sealed class RegisterHandler(
             // Two same-email registrations raced and this one lost the
             // unique index. Same success, per the enumeration rule; no
             // notice event - the winning insert is milliseconds old and
-            // unverified, so there is no established owner to warn yet.
+            // unverified, so there is no established owner to warn yet. No
+            // email either: this path never created the account.
             return Result.Success();
+        }
+
+        // New account committed: send the verification email best-effort.
+        // Only this new-account path sends - the existing-account and
+        // unique-violation-race paths above return without a send, which is
+        // what keeps the endpoint enumeration-safe. A failure here must not
+        // fail registration: the account exists and the resend endpoint
+        // recovers. A production system would move dispatch to a
+        // transactional email-outbox for delivery guarantees and uniform
+        // timing; this inline post-commit send is the starter-appropriate
+        // version, at the hook where the raw token is still in hand.
+        try
+        {
+            await verificationEmail.SendVerificationEmailAsync(email, rawToken, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            VerificationEmailLog.DispatchFailed(logger, exception);
         }
 
         return Result.Success();

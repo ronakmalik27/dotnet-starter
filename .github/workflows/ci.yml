@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   build-test:
-    name: Build and test
+    name: Build and test (unit + architecture)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -34,10 +34,34 @@ jobs:
         run: dotnet restore Starter.slnx --locked-mode
       - name: Build
         run: dotnet build Starter.slnx -c Release --no-restore
-      # The unit and architecture suites need no database. The integration
-      # suite (not included) runs against Testcontainers Postgres.
-      - name: Test
-        run: dotnet test Starter.slnx -c Release --no-build
+      # The unit and architecture suites need no database, so they run here
+      # without Docker. The integration suite runs in its own job below.
+      - name: Test (unit + architecture)
+        run: |
+          dotnet test tests/Starter.SharedKernel.Tests/Starter.SharedKernel.Tests.csproj -c Release --no-build
+          dotnet test tests/Starter.Platform.Tests/Starter.Platform.Tests.csproj -c Release --no-build
+          dotnet test tests/Starter.Identity.Tests/Starter.Identity.Tests.csproj -c Release --no-build
+          dotnet test tests/Starter.Architecture.Tests/Starter.Architecture.Tests.csproj -c Release --no-build
+
+  integration:
+    name: Integration tests (Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Restore (locked)
+        run: dotnet restore Starter.slnx --locked-mode
+      - name: Build
+        run: dotnet build Starter.slnx -c Release --no-restore
+      # GitHub-hosted ubuntu runners ship a working Docker daemon, so
+      # Testcontainers spins up the Postgres 17 the suite needs.
+      - name: Test (integration)
+        run: dotnet test tests/Starter.Integration.Tests/Starter.Integration.Tests.csproj -c Release --no-build
 
   secrets:
     name: Secrets scan

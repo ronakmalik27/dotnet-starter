@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- WebApplicationFactory<Program> boots the real host in-process; the
+         tests also resolve framework services (IDataProtectionProvider) and
+         read ASP.NET Core response types. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The system under test (the host) plus Platform for the IEmailSender
+         seam the fixture replaces with a capturing fake. SharedKernel and the
+         modules flow in transitively through the host. -->
+    <ProjectReference Include="../../src/Starter.App/Starter.App.csproj" />
+    <ProjectReference Include="../../src/Starter.Platform/Starter.Platform.csproj" />
+  </ItemGroup>
+</Project>

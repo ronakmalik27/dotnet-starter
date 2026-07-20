@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Starter.Platform.Events;
 using Starter.Platform.Http;
@@ -6,12 +7,25 @@ namespace Starter.Platform.Data;
 
 /// <summary>
 /// The platform schema's context: outbox, domain_events,
-/// and idempotency_keys - the plumbing every module shares.
+/// and idempotency_keys - the plumbing every module shares. It also owns the
+/// DataProtection key ring (see <see cref="DataProtectionKeys"/>), so key
+/// material persists to Postgres instead of the container filesystem.
 /// </summary>
 internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options)
-    : ModuleDbContext(options, SchemaName)
+    : ModuleDbContext(options, SchemaName), IDataProtectionKeyContext
 {
     internal const string SchemaName = "platform";
+
+    /// <summary>
+    /// The DataProtection key ring, persisted to platform.data_protection_keys.
+    /// Nothing in the template uses DataProtection today (Google OIDC here is a
+    /// custom client-driven code exchange, and the refresh cookie holds an
+    /// opaque server-validated token - neither uses DP). This is the correct
+    /// scale-out default set ahead of the first DP-dependent feature (cookie
+    /// auth, antiforgery, OIDC middleware): keys then survive restarts and are
+    /// shared across replicas instead of silently regenerating per instance.
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

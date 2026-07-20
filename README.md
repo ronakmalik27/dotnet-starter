@@ -15,7 +15,17 @@ and enforced from day one.
 - **Authentication (Identity module).** ES256 JWT access tokens, password auth
   with Argon2id hashing, Google OIDC sign-in (authorization-code flow with PKCE
   and nonce), refresh-token sessions with reuse detection, and email
-  verification.
+  verification (register and resend send the verification link through the email
+  transport below).
+- **Email / notifications.** A pluggable `IEmailSender` seam with two transports:
+  a console sender (the default - it logs the whole message, verification link
+  included, so local development needs no mail server) and a MailKit SMTP sender
+  for real delivery. Pick the transport with `Email:Provider`.
+- **DataProtection key persistence.** ASP.NET DataProtection keys persist to
+  Postgres (the platform schema), so they survive restarts and are shared across
+  replicas instead of regenerating per instance. Nothing consumes DataProtection
+  yet - this is the correct scale-out default set ahead of the first
+  DP-dependent feature (cookie auth, antiforgery, OIDC middleware).
 - **RFC 9457 problem details.** Every error - thrown, returned, or framework
   generated - leaves as `application/problem+json` with a stable type slug and a
   trace id.
@@ -40,7 +50,8 @@ and enforced from day one.
 src/
   Starter.SharedKernel/   Domain primitives: Result/Error, Clock, Ids (UUIDv7). No dependencies.
   Starter.Platform/       Cross-cutting infra: persistence, outbox, idempotency, problem mapping,
-                          JWT verification, and the security-headers / correlation-id middleware.
+                          JWT verification, email transport (Notifications/), DataProtection key
+                          persistence, and the security-headers / correlation-id middleware.
   Starter.Api/            HTTP endpoint composition over the module interfaces.
   Starter.App/            The host and composition root: DI wiring, the request pipeline, hosted services.
   Modules/
@@ -51,6 +62,7 @@ tests/
   Starter.Platform.Tests/
   Starter.Identity.Tests/
   Starter.Architecture.Tests/   Enforces the module boundaries and banned-API rules.
+  Starter.Integration.Tests/    End-to-end over the real host and a Postgres Testcontainer.
 ```
 
 The dependency graph flows one way: `SharedKernel <- Platform <- Modules <- Api <- App`.
@@ -113,6 +125,12 @@ no exporter attached.
 | `ConnectionStrings:Postgres` | Postgres connection string | required outside Development |
 | `Auth:SigningKeyPem` | ES256 private key (PEM) for JWT signing | ephemeral in Development, required elsewhere |
 | `Auth:Google` | Google OIDC options (client id/secret, redirect) | Google sign-in returns 501 when absent |
+| `Auth:Verification:UrlTemplate` | Verify-email link template; `{token}` is replaced with the URL-encoded token | `https://localhost:3000/verify-email?token={token}` |
+| `Email:Provider` | Email transport: `console` or `smtp` | `console` |
+| `Email:FromAddress` / `Email:FromName` | From identity stamped on sent mail | `no-reply@starter.example` / `Starter` |
+| `Email:Smtp:Host` / `Email:Smtp:Port` | SMTP server host and port (smtp provider) | `localhost` / `587` |
+| `Email:Smtp:Username` / `Email:Smtp:Password` | SMTP credentials; password from a secret store, never a default | unset (send unauthenticated) |
+| `Email:Smtp:UseStartTls` | Upgrade the SMTP connection with STARTTLS | `true` |
 | `Cors:AllowedOrigins` | Allowed CORS origins (array) | none (same-origin only) |
 | `Database:MigrateOnStartup` | Apply migrations on boot | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint | unset (export off) |
@@ -155,8 +173,11 @@ The build contract is strict (`Directory.Build.props`): nullable reference types
 on, warnings as errors, and lock-file restore. Package versions are pinned once
 in `Directory.Packages.props` (central package management).
 
-The unit and architecture suites need no database. The integration suite (not
-included here) uses Testcontainers for Postgres and runs under Docker or CI.
+The unit and architecture suites need no database. The integration suite
+(`tests/Starter.Integration.Tests`) boots the real host with
+`WebApplicationFactory` against a Postgres Testcontainer, so it needs a running
+Docker daemon; `dotnet test Starter.slnx` runs it alongside the rest. CI runs it
+in its own job (GitHub-hosted runners provide Docker).
 
 ## License
 

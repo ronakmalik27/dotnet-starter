@@ -12,6 +12,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Starter.Architecture.Tests/Starter.Architecture.Tests.csproj" />
     <Project Path="tests/Starter.Identity.Tests/Starter.Identity.Tests.csproj" />
+    <Project Path="tests/Starter.Integration.Tests/Starter.Integration.Tests.csproj" />
     <Project Path="tests/Starter.Platform.Tests/Starter.Platform.Tests.csproj" />
     <Project Path="tests/Starter.SharedKernel.Tests/Starter.SharedKernel.Tests.csproj" />
   </Folder>

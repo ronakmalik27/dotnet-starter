@@ -20,8 +20,10 @@ using Starter.Identity;
 using Starter.Sample;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
+using Starter.Platform.DataProtection;
 using Starter.Platform.Events;
 using Starter.Platform.Http;
+using Starter.Platform.Notifications;
 using Starter.SharedKernel;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -199,6 +201,11 @@ var signingKey = new ECDsaSecurityKey(signingEcdsa);
 // persistence so the pipeline keeps its contract shape in every mode.
 builder.Services.AddStarterJwtAuthentication(signingKey);
 
+// Email transport: the console sender by default (logs the message,
+// verification link included), SMTP when Email:Provider is smtp. No DB
+// dependency, so it binds regardless of persistence.
+builder.Services.AddStarterEmail(builder.Configuration);
+
 const string readyTag = "ready";
 var healthChecks = builder.Services.AddHealthChecks();
 if (postgres is not null)
@@ -223,6 +230,11 @@ if (postgres is not null)
         .AddPlatformPersistence(postgres)
         .AddIdentityModule(postgres, signingKey, builder.Configuration)
         .AddSampleModule(postgres);
+
+    // DataProtection persists its key ring to the platform context (keys
+    // survive restarts and are shared across replicas). Needs the platform
+    // context, so it lives inside the persistence block.
+    builder.Services.AddPlatformDataProtection();
 
     // Readiness: Postgres reachable via the same data source every request
     // path rides, and every schema's migrations applied. A bounded per-check

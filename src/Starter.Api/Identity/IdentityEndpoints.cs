@@ -338,8 +338,9 @@ public static class IdentityEndpoints
 
         var result = await identity.ResendVerificationEmailAsync(userId, cancellationToken);
         return result.Match(
-            // 202: issuance is accepted; delivery is asynchronous (and
-            // joins with the notifications story's email channel).
+            // 202: issuance is accepted; the module dispatches the fresh
+            // verification email best-effort through the email transport, so
+            // delivery is asynchronous from the caller's point of view.
             () => Results.Accepted(),
             error => error.ToProblemResult(http));
     }
