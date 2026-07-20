@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Module project (LLD section 1): public surface is exactly the
+    I<Module>Api interface plus the <Module>Module bootstrap class
+    (ADR-0011); everything else stays internal. Within the solution, modules may
+    reference only the SharedKernel and Platform - never another module
+    (HLD 3.2); the architecture tests enforce this.
+  -->
+  <ItemGroup>
+    <!-- The integration suite constructs the internal DbContext directly
+         (doc 12 section 6: migrations from zero); the unit suite tests the
+         internal password/token/handler slices (#33). -->
+    <InternalsVisibleTo Include="Starter.Integration.Tests" />
+    <InternalsVisibleTo Include="Starter.Identity.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The FR-AUTH-01 offline breached-password set; regenerate with
+         scripts/dev/build-breached-password-set.py (sources + license
+         documented there). -->
+    <EmbeddedResource Include="Passwords/breached-passwords.bin" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="EFCore.NamingConventions" />
+    <!-- Argon2id (doc 10 4.1) and ES256 JWT issuance (doc 10 4.2). -->
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <!-- Google OIDC (#35, doc 10 4.5): discovery/JWKS via the standard
+         ConfigurationManager (the component under the ASP.NET OIDC
+         middleware), the code exchange over factory-managed HttpClients,
+         options bound from the Auth:Google configuration section. -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Starter.SharedKernel/Starter.SharedKernel.csproj" />
+    <ProjectReference Include="../../Starter.Platform/Starter.Platform.csproj" />
+  </ItemGroup>
+</Project>

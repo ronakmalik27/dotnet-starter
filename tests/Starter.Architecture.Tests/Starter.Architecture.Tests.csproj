@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Architecture layer (doc 12 sections 2 and 5). Two complementary halves:
+    the story #13 reflection tests (project-reference shape, public-surface
+    rules, float ban) that read compiled metadata, and the story #20
+    ArchUnitNET skeleton (banned APIs, module-boundary rule) that reads IL,
+    which reflection cannot see into. ArchUnitNET dependency justification
+    lives in Directory.Packages.props per doc 13 section 9.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="TngTech.ArchUnitNET" />
+    <PackageReference Include="TngTech.ArchUnitNET.xUnitV3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Starter.SharedKernel/Starter.SharedKernel.csproj" />
+    <ProjectReference Include="../../src/Starter.Platform/Starter.Platform.csproj" />
+    <ProjectReference Include="../../src/Starter.Api/Starter.Api.csproj" />
+    <ProjectReference Include="../../src/Starter.App/Starter.App.csproj" />
+    <ProjectReference Include="../../src/Modules/Starter.Identity/Starter.Identity.csproj" />
+    <ProjectReference Include="../../src/Modules/Starter.Sample/Starter.Sample.csproj" />
+  </ItemGroup>
+</Project>

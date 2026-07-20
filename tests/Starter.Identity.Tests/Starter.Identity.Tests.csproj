@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The #33 unit layer (doc 12 section 2): password policy and hashing,
+    PHC parameter round-trips, refresh-token material, and access-token
+    claim construction - the rules proven without infrastructure. The
+    session-store semantics live in the integration suite.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <!-- AccessTokenIssuerTests uses ECDsaSecurityKey/TokenValidationParameters/
+         SecurityAlgorithms directly: an explicit reference, not a ride on
+         JsonWebTokens' transitive graph (CodeRabbit review, PR #257). -->
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Modules/Starter.Identity/Starter.Identity.csproj" />
+    <ProjectReference Include="../../src/Starter.Platform/Starter.Platform.csproj" />
+    <ProjectReference Include="../../src/Starter.SharedKernel/Starter.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

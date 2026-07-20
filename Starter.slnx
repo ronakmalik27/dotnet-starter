@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Starter.Api/Starter.Api.csproj" />
+    <Project Path="src/Starter.App/Starter.App.csproj" />
+    <Project Path="src/Starter.Platform/Starter.Platform.csproj" />
+    <Project Path="src/Starter.SharedKernel/Starter.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/">
+    <Project Path="src/Modules/Starter.Identity/Starter.Identity.csproj" />
+    <Project Path="src/Modules/Starter.Sample/Starter.Sample.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Starter.Architecture.Tests/Starter.Architecture.Tests.csproj" />
+    <Project Path="tests/Starter.Identity.Tests/Starter.Identity.Tests.csproj" />
+    <Project Path="tests/Starter.Platform.Tests/Starter.Platform.Tests.csproj" />
+    <Project Path="tests/Starter.SharedKernel.Tests/Starter.SharedKernel.Tests.csproj" />
+  </Folder>
+</Solution>

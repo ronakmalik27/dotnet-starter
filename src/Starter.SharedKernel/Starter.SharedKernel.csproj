@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The kernel references nothing else in the solution and holds no business
+    logic (LLD section 1, HLD 3.1). The architecture tests assert this shape.
+  -->
+</Project>

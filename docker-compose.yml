@@ -1,0 +1,42 @@
+# Local stack: Postgres plus the app. `docker compose up --build` brings up a
+# ready host - the app applies every module's migrations on startup
+# (Database__MigrateOnStartup=true) once Postgres reports healthy.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      # Dev-only throwaway credentials; never a real secret (they match the
+      # design-time factory and appsettings.Development.json).
+      POSTGRES_USER: starter
+      POSTGRES_PASSWORD: starter
+      POSTGRES_DB: starter
+    ports:
+      - "5432:5432"
+    volumes:
+      - starter-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U starter -d starter"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=starter;Username=starter;Password=starter"
+      Database__MigrateOnStartup: "true"
+      # Uncomment (and add a collector service) to turn on OpenTelemetry
+      # export. With this unset the app boots clean with no exporter.
+      # OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      # OTEL_SERVICE_NAME: "starter"
+    ports:
+      - "8080:8080"
+
+volumes:
+  starter-pgdata:

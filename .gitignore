@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Env & secrets - never commit
+.env
+.env.*
+*.local
+
+# Build outputs (future code phases)
+bin/
+obj/
+build/
+dist/
+node_modules/
+.dart_tool/
+
+# .NET
+*.user
+.vs/
+TestResults/
+artifacts/
+
+# CI coverage output (scripts/ci/check_coverage.py input dir)
+coverage/
+
+# AEOS per-call cost logs (scripts/aeos default telemetry sink)
+.aeos/
+
+# Python tooling (scripts/aeos)
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

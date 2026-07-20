@@ -1,0 +1,32 @@
+using Microsoft.EntityFrameworkCore;
+using Starter.Sample.Domain;
+using Starter.Platform.Data;
+
+namespace Starter.Sample;
+
+/// <summary>
+/// The Sample module's context: owns the sample schema and nothing else
+/// (doc 07 section 2). The schema binding, the app-side UUIDv7 key
+/// convention, and snake_case naming come from ModuleDbContext /
+/// StarterDbContextOptions, so a module context stays this small. Exactly
+/// one ModuleDbContext per module assembly, named &lt;Module&gt;DbContext
+/// and internal - the architecture tests pin all three.
+/// </summary>
+internal sealed class SampleDbContext(DbContextOptions<SampleDbContext> options)
+    : ModuleDbContext(options, SchemaName)
+{
+    internal const string SchemaName = "sample";
+
+    public DbSet<Note> Notes => Set<Note>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<Note>(note =>
+        {
+            note.Property(n => n.Title).HasMaxLength(200);
+            note.Property(n => n.Body).HasColumnType("text");
+        });
+    }
+}

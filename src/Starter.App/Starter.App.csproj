@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    The host (LLD section 1): DI wiring, request pipeline, hosted services.
+    The one project allowed to reference everything - it is the composition
+    root and nothing references it back.
+  -->
+  <PropertyGroup>
+    <!-- Dev-only secrets (doc 10 section 9): Key Vault is not emulated
+         locally; the dev KEK lives in dotnet user-secrets, never in the
+         repo or the compose file. -->
+    <UserSecretsId>89f9ec5f-975c-4f53-9b47-f3fe7947291d</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Starter.SharedKernel/Starter.SharedKernel.csproj" />
+    <ProjectReference Include="../Starter.Platform/Starter.Platform.csproj" />
+    <ProjectReference Include="../Starter.Api/Starter.Api.csproj" />
+    <ProjectReference Include="../Modules/Starter.Identity/Starter.Identity.csproj" />
+    <ProjectReference Include="../Modules/Starter.Sample/Starter.Sample.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Asp.Versioning.Http" />
+    <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+</Project>

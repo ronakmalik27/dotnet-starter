@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Endpoint composition layer (LLD section 1): UI-composition reads call
+    module read interfaces from here (HLD 3.2 rule 2). Endpoints join with
+    their module use-case slices.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Starter.SharedKernel/Starter.SharedKernel.csproj" />
+    <!-- The problem+json mapper and auth contract types the endpoints
+         compose over. -->
+    <ProjectReference Include="../Starter.Platform/Starter.Platform.csproj" />
+    <ProjectReference Include="../Modules/Starter.Identity/Starter.Identity.csproj" />
+    <ProjectReference Include="../Modules/Starter.Sample/Starter.Sample.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+# Gitleaks config. The secret scan is the backstop, not the rule: never write
+# a real secret anywhere in the repo. Secrets live in dotnet user-secrets in
+# development and a managed vault/secret manager in production.
+
+[extend]
+useDefault = true
+
+# Allowlists must be line-shape-narrow, never path-broad, so a real secret
+# pasted into an allowlisted file still fails the scan. None are needed yet:
+# the dev Postgres credentials in appsettings.Development.json and
+# docker-compose.yml are throwaway local values, and gitleaks does not flag
+# them.

@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    Repo-wide compiler contract (doc 13 section 2). These settings are the
+    gate for every project in the solution; per-project opt-outs are a
+    playbook violation, not a config choice.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Lockfiles committed per doc 13 section 9 (pin everything). -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>
