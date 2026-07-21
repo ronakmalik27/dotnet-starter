@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Npgsql;
 using Shouldly;
 using Starter.Integration.Tests.Fixtures;
 using Xunit;
@@ -116,6 +117,92 @@ public sealed class SampleListNotesTests(StarterAppFixture fixture)
     }
 
     [Fact]
+    public async Task List_KeysetPaginates_AcrossRowsSharingOneCreatedAt_NoGapsNoDuplicates()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        var ownerToken = await fixture.RegisterVerifyLoginAsync(
+            $"tie-owner-{Guid.NewGuid():N}@starter.example", Password, cancellationToken);
+        var ownerId = HttpTestHelpers.ReadSubject(ownerToken);
+
+        // Force the same-timestamp tiebreak to actually execute. The create
+        // handler stamps CreatedAt from the host clock, and the host is shared
+        // across the whole collection, so freezing its clock globally would
+        // break the token-expiry and verification tests that share it. Instead
+        // seed the rows directly with an IDENTICAL created_at (and distinct
+        // UUIDv7 ids) so the keyset's (created_at desc, id desc) predicate must
+        // fall through to the id tiebreak on every page boundary - exercised
+        // against real Postgres ordering through the real HTTP list endpoint.
+        const int noteCount = 7;
+        var sharedCreatedAt = new DateTimeOffset(2026, 1, 15, 9, 30, 0, TimeSpan.Zero);
+        var seededIds = new List<Guid>();
+        await using (var connection = await fixture.OpenConnectionAsync(cancellationToken))
+        {
+            for (var i = 0; i < noteCount; i++)
+            {
+                var id = Guid.CreateVersion7();
+                seededIds.Add(id);
+                await using var insert = new NpgsqlCommand(
+                    "insert into sample.notes (id, owner_user_id, title, body, created_at, updated_at) "
+                    + "values (@id, @owner, @title, @body, @created, @created)",
+                    connection);
+                insert.Parameters.AddWithValue("id", id);
+                insert.Parameters.AddWithValue("owner", ownerId);
+                insert.Parameters.AddWithValue("title", $"Tie note {i}");
+                insert.Parameters.AddWithValue("body", $"Body {i}");
+                insert.Parameters.AddWithValue("created", sharedCreatedAt);
+                await insert.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        // Walk the list a page at a time (limit 3 -> 3, 3, 1).
+        var pageSizes = new List<int>();
+        var walkedIds = new List<Guid>();
+        var walkedCreatedAt = new List<DateTimeOffset>();
+        string? cursor = null;
+        do
+        {
+            var url = "/api/v1/sample/notes?limit=3"
+                + (cursor is null ? string.Empty : $"&cursor={Uri.EscapeDataString(cursor)}");
+            var response = await SendAsync(HttpMethod.Get, url, ownerToken, cancellationToken);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+            using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+            var items = doc.RootElement.GetProperty("items");
+            pageSizes.Add(items.GetArrayLength());
+            foreach (var item in items.EnumerateArray())
+            {
+                walkedIds.Add(item.GetProperty("id").GetGuid());
+                walkedCreatedAt.Add(item.GetProperty("createdAt").GetDateTimeOffset());
+            }
+
+            var next = doc.RootElement.GetProperty("nextCursor");
+            cursor = next.ValueKind == JsonValueKind.Null ? null : next.GetString();
+        }
+        while (cursor is not null);
+
+        // The walk terminated with pages 3 + 3 + 1.
+        pageSizes.ShouldBe([3, 3, 1]);
+
+        // No gaps, no duplicates: exactly the seven seeded ids, once each,
+        // even though all seven share one created_at (the tie was crossed
+        // repeatedly without dropping or repeating a row).
+        walkedIds.Count.ShouldBe(noteCount);
+        walkedIds.ShouldBeUnique();
+        walkedIds.ShouldBe(seededIds, ignoreOrder: true);
+
+        // Every row carries the shared timestamp, so ordering is entirely the
+        // id tiebreak: strictly descending in Postgres uuid order (which the
+        // canonical lowercase form compares ordinally the same way).
+        walkedCreatedAt.ShouldAllBe(created => created == sharedCreatedAt);
+        for (var i = 1; i < walkedIds.Count; i++)
+        {
+            string.CompareOrdinal(
+                walkedIds[i - 1].ToString(), walkedIds[i].ToString()).ShouldBeGreaterThan(0);
+        }
+    }
+
+    [Fact]
     public async Task List_MalformedCursor_Is422()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -153,6 +240,13 @@ public sealed class SampleListNotesTests(StarterAppFixture fixture)
     {
         using var request = new HttpRequestMessage(method, uri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (method == HttpMethod.Post)
+        {
+            // The create route is idempotency-gated; a fresh UUIDv7 key per POST
+            // lets each seed note through the filter (distinct keys never replay).
+            request.Headers.Add("Idempotency-Key", Guid.CreateVersion7().ToString());
+        }
+
         if (body is not null)
         {
             request.Content = JsonContent.Create(body);

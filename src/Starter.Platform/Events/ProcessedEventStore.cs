@@ -11,6 +11,17 @@ namespace Starter.Platform.Events;
 /// returns false (a prior delivery already did). Constructed with the
 /// shared <see cref="NpgsqlDataSource"/> singleton, so it is itself
 /// singleton-safe and holds no per-request state.
+/// <para>
+/// Important scope: <see cref="TryRecordAsync"/> opens its OWN connection and
+/// commits the claim on its own. The claim is therefore NOT part of any
+/// caller's transaction - it stands alone. That is exactly right for the
+/// claim-before-best-effort-effect shape (the notifications consumer), where
+/// the effect is non-transactional anyway. It is the WRONG tool for a
+/// consumer that needs its dedup claim and its effect to commit atomically:
+/// such a consumer must record its own dedup row through its OWN DbContext,
+/// enlisted in the same transaction as the effect, rather than calling this
+/// store. See <see cref="IDomainEventConsumer"/> for the two dedup shapes.
+/// </para>
 /// </summary>
 public sealed class ProcessedEventStore(NpgsqlDataSource dataSource)
 {

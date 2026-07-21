@@ -1,6 +1,9 @@
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -71,6 +74,20 @@ public sealed class StarterAppFixture : IAsyncLifetime
                 // after the host's own service registration, so it wins.
                 services.RemoveAll<IEmailSender>();
                 services.AddSingleton<IEmailSender>(Emails);
+
+                // Lift the global rate-limit ceiling for the test host only.
+                // Production applies a 100-requests/minute limiter partitioned
+                // by client IP; every in-process test request shares one
+                // partition (the TestServer presents no distinct client IP), so
+                // the whole collection would draw on a single 100/min bucket
+                // and later tests would hit spurious 429s as the suite grows.
+                // The limiter's mapping is unit-tested elsewhere and is not the
+                // subject here, so the test host swaps in a no-op limiter rather
+                // than letting the ceiling throttle the shared run. This
+                // Configure callback runs after the host's, so it wins.
+                services.Configure<RateLimiterOptions>(rateLimiter =>
+                    rateLimiter.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
+                        _ => RateLimitPartition.GetNoLimiter("test")));
             }));
 
         // Building the client triggers host startup, which runs every

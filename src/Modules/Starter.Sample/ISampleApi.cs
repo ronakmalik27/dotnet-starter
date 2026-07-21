@@ -1,3 +1,4 @@
+using Starter.Platform.Http;
 using Starter.SharedKernel;
 
 namespace Starter.Sample;
@@ -19,12 +20,24 @@ public interface ISampleApi
     /// id. Emits sample.note.created on the transactional outbox in the same
     /// transaction as the row, so the demonstration of the outbox pattern is
     /// end to end. Failures are Validation only (empty title or body).
+    /// <para>
+    /// When <paramref name="idempotentTransaction"/> is non-null the endpoint
+    /// is behind the idempotency filter: the note, its domain_events spine row,
+    /// its outbox rows, and the filter's stored idempotency response all commit
+    /// in that one filter-owned transaction (the filter commits). When it is
+    /// null the command opens and commits its own transaction. The parameter is
+    /// a platform contract type (<see cref="IIdempotentTransaction"/>), so this
+    /// signature keeps the module surface at exactly this interface plus its
+    /// bootstrap class - the worked example of enlisting a module write onto
+    /// the idempotency filter's transaction.
+    /// </para>
     /// </summary>
     Task<Result<Guid>> CreateNoteAsync(
         Guid ownerUserId,
         string title,
         string body,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        IIdempotentTransaction? idempotentTransaction = null);
 
     /// <summary>
     /// Reads a note by id. An unknown id is a NotFound failure; success

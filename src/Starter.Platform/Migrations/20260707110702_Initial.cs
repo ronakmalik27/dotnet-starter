@@ -18,7 +18,9 @@ namespace Starter.Platform.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-
+            // Intentionally forward-only: the initial schema is the baseline
+            // and is never rolled back below it (dropping the schema would
+            // take every later migration's tables with it).
         }
     }
 }

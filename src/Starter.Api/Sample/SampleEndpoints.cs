@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Starter.Api.Identity;
 using Starter.Sample;
 using Starter.Platform.Auth;
 using Starter.Platform.Http;
@@ -17,7 +18,12 @@ namespace Starter.Api.Sample;
 /// <see cref="ResourceOperations"/> requirements - the access token carries
 /// no roles, so authorization is resolved against the entity, not the claim.
 /// The collection list is owner-scoped at the query and keyset (cursor)
-/// paginated - the pagination convention for a module collection. Business
+/// paginated - the pagination convention for a module collection. The
+/// mutations also show the two write-side gates: the create is the worked
+/// example of an idempotent POST (RequireIdempotency, so a retried
+/// Idempotency-Key replays the stored response instead of creating twice),
+/// and both mutations require a verified email (RequireVerifiedEmail -
+/// verify-to-write), while the reads deliberately do not. Business
 /// rules live behind <see cref="ISampleApi"/>; this layer never touches the
 /// module's internals. It maps onto a route group the composition root has
 /// already bound to an API version, so the full path is
@@ -35,10 +41,21 @@ public static class SampleEndpoints
         // module's collection, write, and read gates.
         var notes = versionedGroup.MapGroup("/sample/notes");
 
+        // Reads never require a verified email (verify-to-write, not
+        // verify-to-read - the standard); both mutations do.
         notes.MapGet("/", ListNotesAsync).RequireAuthorization();
-        notes.MapPost("/", CreateNoteAsync).RequireAuthorization();
+        // Filter order matters: RequireIdempotency is added FIRST so it is the
+        // outermost filter and runs before everything else (its contract - a
+        // request is deduplicated before any work, including the verified-email
+        // gate, happens), then the verify-to-write gate, then authorization.
+        notes.MapPost("/", CreateNoteAsync)
+            .RequireIdempotency()
+            .RequireVerifiedEmail()
+            .RequireAuthorization();
         notes.MapGet("/{id:guid}", GetNoteByIdAsync).RequireAuthorization();
-        notes.MapDelete("/{id:guid}", DeleteNoteAsync).RequireAuthorization();
+        notes.MapDelete("/{id:guid}", DeleteNoteAsync)
+            .RequireVerifiedEmail()
+            .RequireAuthorization();
 
         return versionedGroup;
     }
@@ -104,8 +121,14 @@ public static class SampleEndpoints
             return TypedResults.Problem(StarterProblems.Validation(http, errors));
         }
 
+        // The idempotency filter, when wired, exposes its open transaction as
+        // a request feature. Pass it to the command so the note, its spine and
+        // outbox rows, and the filter's stored response all commit together;
+        // when the feature is absent (filter not wired) the command owns its
+        // own transaction.
+        var idempotentTransaction = http.Features.Get<IIdempotentTransaction>();
         var result = await sample.CreateNoteAsync(
-            ownerUserId.Value, request.Title!, request.Body!, cancellationToken);
+            ownerUserId.Value, request.Title!, request.Body!, cancellationToken, idempotentTransaction);
         return result.Match(
             id => Results.Created($"/api/v1/sample/notes/{id}", new CreateNoteResponse(id)),
             error => error.ToProblemResult(http));

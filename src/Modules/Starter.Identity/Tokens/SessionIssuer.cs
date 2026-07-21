@@ -57,9 +57,13 @@ internal sealed class SessionIssuer(
         try
         {
             db.Sessions.Add(session);
+            // The IP is persisted on the session row above (session.Ip), not
+            // on the domain_events spine: the event payload carries the coarse
+            // device label only (privacy rule - the append-only spine keeps no
+            // per-row-erasable PII).
             await outbox.EnqueueAsync(
                 db,
-                IdentityEvents.SessionCreated(session.Id, user.Id, deviceLabel, ipAddress, now),
+                IdentityEvents.SessionCreated(session.Id, user.Id, deviceLabel, now),
                 cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             if (ownsTransaction)

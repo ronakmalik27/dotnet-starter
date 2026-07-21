@@ -37,10 +37,14 @@ internal sealed class User
     public required int TokenVersion { get; set; }
 
     /// <summary>
-    /// The 7-day soft deadline, set at registration. After it,
-    /// an unverified account's writes lock. Kept even
-    /// after verification: verified-ness dominates, so clearing it would
-    /// only destroy audit signal.
+    /// A lifecycle/audit signal, set at registration: the deadline by which an
+    /// unverified account should be chased or disabled by a reaper (a periodic
+    /// job that is not yet wired). It does NOT gate writes. Writes are gated by
+    /// verified-ness itself, through the `vrf` capability gate, which reads
+    /// <see cref="EmailVerifiedAt"/> - an unverified account cannot write from
+    /// the moment it registers, not only after this deadline passes. Kept even
+    /// after verification: verified-ness dominates, so clearing it would only
+    /// destroy audit signal.
     /// </summary>
     public DateTimeOffset? VerificationDeadlineAt { get; set; }
 

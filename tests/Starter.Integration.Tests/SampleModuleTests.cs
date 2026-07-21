@@ -129,6 +129,15 @@ public sealed class SampleModuleTests(StarterAppFixture fixture)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
+        if (method == HttpMethod.Post)
+        {
+            // The create route is now idempotency-gated: a fresh UUIDv7 key per
+            // POST lets each distinct create through the filter (distinct keys
+            // never replay). Idempotency semantics have their own dedicated
+            // test; here the key is just plumbing.
+            request.Headers.Add("Idempotency-Key", Guid.CreateVersion7().ToString());
+        }
+
         if (body is not null)
         {
             request.Content = JsonContent.Create(body);

@@ -104,12 +104,20 @@ internal static class IdentityEvents
         Payload = JsonSerializer.Serialize(new { }, Json),
     };
 
-    /// <summary>identity.session.created: login.</summary>
+    /// <summary>
+    /// identity.session.created: login. The payload carries the coarse
+    /// device label only. The client IP is deliberately NOT on the spine:
+    /// domain_events is append-only and retained forever with no per-row
+    /// erasure path, so an IP - personal data under GDPR - would become
+    /// undeletable PII. The IP still lives on the mutable sessions row (set
+    /// by the SessionIssuer), where it can be redacted or aged out; the
+    /// privacy rule that keeps credentials off the spine keeps the IP off it
+    /// too.
+    /// </summary>
     public static DomainEventRecord SessionCreated(
         Guid sessionId,
         Guid userId,
         string? device,
-        string? ip,
         DateTimeOffset now) => new()
         {
             Id = Ids.NewId(now),
@@ -118,7 +126,7 @@ internal static class IdentityEvents
             EventType = "identity.session.created",
             EntityId = sessionId,
             ActorUserId = userId,
-            Payload = JsonSerializer.Serialize(new { device, ip }, Json),
+            Payload = JsonSerializer.Serialize(new { device }, Json),
         };
 
     /// <summary>

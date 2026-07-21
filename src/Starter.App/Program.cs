@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using OpenTelemetry.Logs;
@@ -221,6 +222,10 @@ if (postgres is not null)
         .Bind(builder.Configuration.GetSection("Outbox"))
         .ValidateDataAnnotations()
         .ValidateOnStart();
+    // The durations carry no [Range] (TimeSpan has none), so a custom
+    // IValidateOptions asserts they are sensible; registered as a singleton so
+    // ValidateOnStart runs it at boot alongside the annotation checks.
+    builder.Services.AddSingleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>();
     builder.Services.AddSingleton<OutboxMetrics>();
     builder.Services.AddSingleton<OutboxWriter>();
     // The reusable at-least-once dedup store: consumers claim an event id

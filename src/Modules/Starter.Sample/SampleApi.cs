@@ -2,6 +2,7 @@ using Starter.Sample.CreateNote;
 using Starter.Sample.DeleteNote;
 using Starter.Sample.GetNote;
 using Starter.Sample.ListNotes;
+using Starter.Platform.Http;
 using Starter.SharedKernel;
 
 namespace Starter.Sample;
@@ -21,8 +22,9 @@ internal sealed class SampleApi(
         Guid ownerUserId,
         string title,
         string body,
-        CancellationToken cancellationToken) =>
-        createNote.HandleAsync(ownerUserId, title, body, cancellationToken);
+        CancellationToken cancellationToken,
+        IIdempotentTransaction? idempotentTransaction = null) =>
+        createNote.HandleAsync(ownerUserId, title, body, cancellationToken, idempotentTransaction);
 
     public Task<Result<(Guid Id, Guid OwnerUserId, string Title, string Body, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
         GetNoteAsync(Guid id, CancellationToken cancellationToken) =>
