@@ -33,6 +33,14 @@ dotnet test  Starter.slnx -c Release
 - The unit and architecture suites need no database. The integration suite
   (`tests/Starter.Integration.Tests`) boots the real host against a Postgres
   Testcontainer, so it needs a running Docker daemon.
+- Warnings-as-errors plus the transitive NuGet audit is deliberate, and it has
+  a cost: a newly-disclosed advisory against a package you never touched can
+  break an otherwise-unchanged commit's build the day it lands. That is the
+  intended failure mode - a fresh vulnerability should stop the line, not slip
+  through. The fix is to bump the affected package's central pin in
+  `Directory.Packages.props` forward to the patched release and re-restore, as
+  was done for `System.Security.Cryptography.Xml` (transitive via
+  DataProtection).
 
 ## Module boundaries (the architecture tests enforce these)
 

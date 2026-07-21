@@ -40,6 +40,14 @@
          so keys survive restarts and are shared across replicas. Kept on the
          same 10.0.x train as the JwtBearer/EF pins. -->
     <PackageVersion Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.9" />
+    <!-- Microsoft.AspNetCore.DataProtection.EntityFrameworkCore pulls
+         System.Security.Cryptography.Xml transitively; its 10.0.9 floor
+         carries four high-severity advisories (GHSA-23rf-6693-g89p,
+         GHSA-8q5v-6pqq-x66h, GHSA-cvvh-rhrc-wg4q, GHSA-g8r8-53c2-pm3f), all
+         fixed in 10.0.10. Pinned forward to the patched release so the NuGet
+         audit stays clean (CentralPackageTransitivePinningEnabled makes the
+         pin bind the transitive). -->
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.10" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
     <!-- Microsoft.AspNetCore.OpenApi pulls Microsoft.OpenApi transitively;
          its 2.0.0 floor carries GHSA-v5pm-xwqc-g5wc (a DoS, fixed in 2.7.5).
