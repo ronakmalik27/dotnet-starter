@@ -125,6 +125,23 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 400 for a tenant-scoped endpoint reached with no resolvable tenant.
+    /// A stable slug so a client can tell "you forgot to name a tenant" apart
+    /// from a generic bad request.
+    /// </summary>
+    public static ProblemDetails TenantRequired(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status400BadRequest,
+            ProblemTypes.TenantRequired,
+            "This endpoint requires an active tenant.",
+            "Address the request to a tenant (the X-Tenant header, a /t/{slug}/ path, a subdomain, or a tenant token).");
+    }
+
+    /// <summary>
     /// A client fault raised while reading the request (malformed JSON
     /// body, oversized payload, ..): the framework's status is preserved
     /// (400/413/431), the fixed text never echoes payload or framework

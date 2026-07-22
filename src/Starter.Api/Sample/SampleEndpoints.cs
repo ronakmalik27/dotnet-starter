@@ -7,6 +7,7 @@ using Starter.Sample;
 using Starter.Platform.Auth;
 using Starter.Platform.Http;
 using Starter.Platform.Paging;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Api.Sample;
 
@@ -41,19 +42,28 @@ public static class SampleEndpoints
         // module's collection, write, and read gates.
         var notes = versionedGroup.MapGroup("/sample/notes");
 
+        // The module is now tenant-scoped: every route requires a resolved
+        // tenant (RequireTenant -> 400 starter:tenant-required when none), on
+        // top of the existing authentication and owner checks. The tenant
+        // boundary (RLS + query filter) is the outer scope; owner ownership is
+        // the inner check within a tenant, unchanged.
+        //
         // Reads never require a verified email (verify-to-write, not
         // verify-to-read - the standard); both mutations do.
-        notes.MapGet("/", ListNotesAsync).RequireAuthorization();
+        notes.MapGet("/", ListNotesAsync).RequireTenant().RequireAuthorization();
         // Filter order matters: RequireIdempotency is added FIRST so it is the
         // outermost filter and runs before everything else (its contract - a
-        // request is deduplicated before any work, including the verified-email
-        // gate, happens), then the verify-to-write gate, then authorization.
+        // request is deduplicated before any work, including the tenant and
+        // verified-email gates, happens), then the tenant gate, then the
+        // verify-to-write gate, then authorization.
         notes.MapPost("/", CreateNoteAsync)
             .RequireIdempotency()
+            .RequireTenant()
             .RequireVerifiedEmail()
             .RequireAuthorization();
-        notes.MapGet("/{id:guid}", GetNoteByIdAsync).RequireAuthorization();
+        notes.MapGet("/{id:guid}", GetNoteByIdAsync).RequireTenant().RequireAuthorization();
         notes.MapDelete("/{id:guid}", DeleteNoteAsync)
+            .RequireTenant()
             .RequireVerifiedEmail()
             .RequireAuthorization();
 

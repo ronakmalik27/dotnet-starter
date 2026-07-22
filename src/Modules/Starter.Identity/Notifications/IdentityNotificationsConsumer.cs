@@ -34,13 +34,15 @@ namespace Starter.Identity.Notifications;
 /// starter-appropriate example for a best-effort notice, not for a payment
 /// or an audit write.
 /// <para>
-/// Singleton, per the <see cref="IDomainEventConsumer"/> contract: it
-/// resolves the scoped <see cref="IdentityDbContext"/> per consume through a
-/// scope factory and never holds one on a field.
+/// Singleton, per the <see cref="IDomainEventConsumer"/> contract: it resolves
+/// the scoped <see cref="IdentityDbContext"/> from the dispatcher's per-consume
+/// scope and never holds one on a field. Identity events are platform-level
+/// (users are global, so the event's tenant is null and the scope carries no
+/// tenant), and the users table is not tenant-owned, so its reads need no
+/// tenant GUC.
 /// </para>
 /// </summary>
 internal sealed class IdentityNotificationsConsumer(
-    IServiceScopeFactory scopeFactory,
     ProcessedEventStore processedEvents,
     IEmailSender emailSender,
     ILogger<IdentityNotificationsConsumer> logger) : IDomainEventConsumer
@@ -56,14 +58,18 @@ internal sealed class IdentityNotificationsConsumer(
         "identity.password.changed",
     ];
 
-    public async Task ConsumeAsync(DomainEventRecord domainEvent, CancellationToken cancellationToken)
+    public async Task ConsumeAsync(
+        IServiceProvider services,
+        DomainEventRecord domainEvent,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(domainEvent);
 
         // Both subscribed events set EntityId = the user id. Resolve the
-        // scoped context per consume (never a constructor field).
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+        // scoped context from the dispatcher's scope (never a constructor
+        // field, never a scope of our own).
+        var db = services.GetRequiredService<IdentityDbContext>();
 
         var email = await db.Users
             .AsNoTracking()

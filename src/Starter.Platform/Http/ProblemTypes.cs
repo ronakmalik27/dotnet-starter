@@ -48,6 +48,13 @@ public static class ProblemTypes
     /// <summary>400 family (400/413/431/..): the request could not be read - malformed body, oversized payload.</summary>
     public const string BadRequest = "starter:bad-request";
 
+    /// <summary>
+    /// 400: the endpoint is tenant-scoped but no active tenant could be
+    /// resolved from the request (no tid claim, subdomain, path prefix, or
+    /// X-Tenant header). The caller must address the request to a tenant.
+    /// </summary>
+    public const string TenantRequired = "starter:tenant-required";
+
     /// <summary>405: the HTTP method is not supported on this route.</summary>
     public const string MethodNotAllowed = "starter:method-not-allowed";
 

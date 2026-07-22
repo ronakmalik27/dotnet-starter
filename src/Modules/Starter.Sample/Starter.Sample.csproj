@@ -8,6 +8,13 @@
     starting point for a new module.
   -->
   <ItemGroup>
+    <!-- The integration suite proves RLS on the real interceptor path against
+         a tenant-owned entity, which needs the module's internal DbContext and
+         Note type (same friend-assembly pattern Starter.Platform uses). Does
+         not widen the module's public surface: GetExportedTypes is unchanged. -->
+    <InternalsVisibleTo Include="Starter.Integration.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="EFCore.NamingConventions" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>

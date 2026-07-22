@@ -25,6 +25,7 @@ using Starter.Platform.DataProtection;
 using Starter.Platform.Events;
 using Starter.Platform.Http;
 using Starter.Platform.Notifications;
+using Starter.Platform.Tenancy;
 using Starter.SharedKernel;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -209,12 +210,32 @@ builder.Services.AddStarterEmail(builder.Configuration);
 
 const string readyTag = "ready";
 var healthChecks = builder.Services.AddHealthChecks();
+
+// Tenant isolation is enforced by Postgres row-level security, which only
+// binds a NON-superuser, NON-BYPASSRLS role. The configured connection is the
+// privileged admin credential (a superuser locally and in the Testcontainer);
+// it is used ONLY to provision two derived roles and is never registered for
+// request-scoped resolution. The request/consumer path connects as the RLS-
+// bound role; migrations and the bypass data source connect as the BYPASSRLS
+// role. See TenantRoleProvisioner for the derivation and the bootstrap below
+// for role creation and grants.
+TenantRoleProvisioner? tenantRoles = null;
 if (postgres is not null)
 {
-    // The transactional outbox. Consumers register per module as they land;
-    // with none, events still reach the domain_events spine and the
-    // dispatcher idles as leader.
-    builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(postgres));
+    tenantRoles = TenantRoleProvisioner.FromAdminConnection(postgres);
+    var requestConnection = tenantRoles.RequestConnectionString;
+
+    // THE normal data source every request-scoped path resolves (idempotency
+    // filter, outbox dispatcher, ProcessedEventStore): the RLS-bound role.
+    builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(requestConnection));
+    // The RLS-exempt escape hatch, a distinct type so request-scoped code
+    // cannot resolve it by asking for an NpgsqlDataSource. Migrations, bootstrap,
+    // and explicitly cross-tenant work use it; nothing else can.
+    builder.Services.AddSingleton(_ =>
+        new BypassDataSource(NpgsqlDataSource.Create(tenantRoles.BypassConnectionString)));
+    // The request/consumer-scoped tenant context set by the resolution
+    // middleware and the outbox dispatcher.
+    builder.Services.AddStarterTenantContext(builder.Configuration);
     // Validated options: the numeric-range annotations are checked at startup,
     // so a bad Outbox override fails the boot rather than the dispatcher; the
     // defaults satisfy every annotation.
@@ -242,9 +263,9 @@ if (postgres is not null)
     // the same path. Explicit calls, no scanning - the composition root names
     // what it composes.
     builder.Services
-        .AddPlatformPersistence(postgres)
-        .AddIdentityModule(postgres, signingKey, builder.Configuration)
-        .AddSampleModule(postgres);
+        .AddPlatformPersistence(requestConnection)
+        .AddIdentityModule(requestConnection, signingKey, builder.Configuration)
+        .AddSampleModule(requestConnection);
 
     // DataProtection persists its key ring to the platform context (keys
     // survive restarts and are shared across replicas). Needs the platform
@@ -272,16 +293,26 @@ var app = builder.Build();
 // Migrate every module schema at startup when Database:MigrateOnStartup is
 // set (the compose stack sets it, so `docker compose up` boots a ready host
 // with no manual step). Off by default, so a local host can still boot
-// without Postgres for UI-only work. Each module context migrates from its
-// own assembly, so the schemas stay independent.
-if (postgres is not null && builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+// without Postgres for UI-only work. The bootstrap owns the tenant-isolation
+// setup end to end: first (re)provision the two roles on the admin connection,
+// then migrate each schema on the BYPASS role (so it owns the tables and the
+// FORCE-RLS owner-bypass rule applies), then grant the request role the DML
+// rights it needs to work under RLS on the freshly-created tables.
+if (postgres is not null && tenantRoles is not null
+    && builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {
+    await tenantRoles.EnsureRolesAsync(CancellationToken.None);
+
     await using var migrationScope = app.Services.CreateAsyncScope();
-    foreach (var schema in migrationScope.ServiceProvider.GetServices<ModuleSchema>())
+    var schemas = migrationScope.ServiceProvider.GetServices<ModuleSchema>().ToList();
+    foreach (var schema in schemas)
     {
-        var context = (DbContext)migrationScope.ServiceProvider.GetRequiredService(schema.ContextType);
-        await context.Database.MigrateAsync();
+        await MigrateSchemaAsync(migrationScope.ServiceProvider, schema, tenantRoles.BypassConnectionString);
     }
+
+    await tenantRoles.GrantRequestRolePrivilegesAsync(
+        schemas.Select(schema => schema.Name).Distinct(StringComparer.Ordinal).ToList(),
+        CancellationToken.None);
 }
 
 // The request pipeline. Security headers and correlation/request logging are
@@ -306,6 +337,13 @@ app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Tenant resolution runs after authentication (it reads the tid claim off the
+// signed principal) and before endpoint execution, so the request-scoped
+// tenant is set before any handler opens a transaction. It never rejects a
+// request; a tenant-scoped endpoint enforces its own requirement with
+// RequireTenant.
+app.UseStarterTenantResolution();
 
 // OpenAPI document and the Scalar reference UI: Development only, anonymous,
 // and outside the rate limiter. The document also feeds Scalar.
@@ -343,6 +381,26 @@ if (postgres is not null)
 }
 
 app.Run();
+
+// Migrates one module schema on the bypass role. The request contexts are
+// wired to the RLS-bound role, so migrations (which own the tables) need
+// bypass-role options built for the runtime context type: ForSchema is
+// generic, reached reflectively; ActivatorUtilities fills the context's
+// ITenantContext (unresolved at bootstrap, so the interceptor is a no-op).
+static async Task MigrateSchemaAsync(
+    IServiceProvider services, ModuleSchema schema, string bypassConnectionString)
+{
+    var optionsBuilder = (DbContextOptionsBuilder)typeof(StarterDbContextOptions)
+        .GetMethod(nameof(StarterDbContextOptions.ForSchema))!
+        .MakeGenericMethod(schema.ContextType)
+        .Invoke(null, [bypassConnectionString, schema.Name])!;
+    var context = (DbContext)ActivatorUtilities.CreateInstance(
+        services, schema.ContextType, optionsBuilder.Options);
+    await using (context.ConfigureAwait(false))
+    {
+        await context.Database.MigrateAsync();
+    }
+}
 
 // Traces skip the health probes: they fire on a timer and would swamp the
 // trace stream with no diagnostic value.

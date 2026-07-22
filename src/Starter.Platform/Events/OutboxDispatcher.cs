@@ -1,7 +1,9 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Platform.Events;
 
@@ -26,6 +28,7 @@ public sealed class OutboxDispatcher : BackgroundService
     private readonly OutboxOptions _options;
     private readonly OutboxMetrics _metrics;
     private readonly TimeProvider _timeProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<OutboxDispatcher> _logger;
     private readonly Dictionary<Lane, Dictionary<string, IDomainEventConsumer[]>> _consumers;
 
@@ -35,12 +38,14 @@ public sealed class OutboxDispatcher : BackgroundService
         IEnumerable<IDomainEventConsumer> consumers,
         OutboxMetrics metrics,
         TimeProvider timeProvider,
+        IServiceScopeFactory scopeFactory,
         ILogger<OutboxDispatcher> logger)
     {
         _dataSource = dataSource;
         _options = options.Value;
         _metrics = metrics;
         _timeProvider = timeProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
         _consumers = consumers
             .SelectMany(c => c.EventTypes.Select(t => (Type: t, Consumer: c)))
@@ -208,7 +213,7 @@ public sealed class OutboxDispatcher : BackgroundService
         const string claimSql = """
             select o.event_id, o.attempts, o.enqueued_at,
                    d.occurred_at, d.module, d.event_type, d.entity_id,
-                   d.actor_user_id, d.payload
+                   d.actor_user_id, d.payload, d.tenant_id
             from platform.outbox o
             join platform.domain_events d on d.id = o.event_id
             where o.lane = $1 and o.delivered_at is null
@@ -241,6 +246,7 @@ public sealed class OutboxDispatcher : BackgroundService
                         EntityId = reader.GetGuid(6),
                         ActorUserId = reader.IsDBNull(7) ? null : reader.GetGuid(7),
                         Payload = reader.GetString(8),
+                        TenantId = reader.IsDBNull(9) ? null : reader.GetGuid(9),
                     }));
             }
         }
@@ -370,9 +376,18 @@ public sealed class OutboxDispatcher : BackgroundService
             // re-claim races it).
             using var sendWindow = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             sendWindow.CancelAfter(_options.SendTimeout(lane));
+
+            // One scope per event, tenant bound from the event's tenant_id
+            // BEFORE any consumer runs: the same transaction interceptor then
+            // sets the RLS GUC, so a tenant-scoped consumer (and its dedup
+            // claim) is bound exactly like an HTTP request, and a consumer that
+            // forgets to filter still cannot cross tenants. A platform event
+            // (null tenant) leaves the scope unresolved.
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<TenantContext>().BindConsumerTenant(domainEvent.TenantId);
             foreach (var consumer in consumers)
             {
-                await consumer.ConsumeAsync(domainEvent, sendWindow.Token);
+                await consumer.ConsumeAsync(scope.ServiceProvider, domainEvent, sendWindow.Token);
             }
 
             if (BetweenSendAndMarkHook is { } hook)

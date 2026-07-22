@@ -47,6 +47,14 @@ public static class StarterClaims
     public const string Sid = "sid";
 
     /// <summary>
+    /// The active tenant id for a tenant-scoped access token. Read by tenant
+    /// resolution as the authoritative source once a caller has signed in for
+    /// a tenant. Absent until the Tenancy module mints it; a token without it
+    /// simply resolves the tenant from another source (header, path, subdomain).
+    /// </summary>
+    public const string Tid = "tid";
+
+    /// <summary>
     /// The user's global token version, bumped for cheap mass revocation
     /// and enforced at refresh only.
     /// </summary>

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -26,12 +27,16 @@ public class OutboxDispatcherTests
         await using var dataSource = NpgsqlDataSource.Create(
             "Host=127.0.0.1;Port=1;Username=unused;Password=unused;Database=unused");
         var logger = new RecordingLogger();
+        // No consumers, so no consume scope is ever created; a bare provider's
+        // scope factory satisfies the dependency without being exercised.
+        await using var services = new ServiceCollection().BuildServiceProvider();
         using var dispatcher = new OutboxDispatcher(
             dataSource,
             Options.Create(new OutboxOptions { LeaderRetryInterval = TimeSpan.FromMilliseconds(20) }),
             [],
             new OutboxMetrics(),
             TimeProvider.System,
+            services.GetRequiredService<IServiceScopeFactory>(),
             logger);
 
         await dispatcher.StartAsync(TestContext.Current.CancellationToken);

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Starter.Platform.Data;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Platform.Events;
 
@@ -48,21 +49,39 @@ public sealed class OutboxWriter
             ?? throw new InvalidOperationException(
                 "EnqueueAsync must run inside the business transaction.");
 
+        // Stamp the event's tenant from the tenant the enqueue is running
+        // under (the owning context's tenant), never from the emitting module.
+        // Null when there is no tenant (a platform event). The platform tables
+        // carry no RLS, so this context needs no tenant of its own.
+        var tenantId = TenantOf(transactionOwner);
+        domainEvent.TenantId = tenantId;
+
         var optionsBuilder = new DbContextOptionsBuilder<PlatformDbContext>();
         optionsBuilder
             .UseNpgsql(transactionOwner.Database.GetDbConnection())
             .UseSnakeCaseNamingConvention();
 
-        await using var platform = new PlatformDbContext(optionsBuilder.Options);
+        await using var platform = new PlatformDbContext(optionsBuilder.Options, NoTenant.Instance);
         await platform.Database.UseTransactionAsync(
             transaction.GetDbTransaction(), cancellationToken);
 
         platform.Add(domainEvent);
         foreach (var lane in Route(domainEvent.EventType))
         {
-            platform.Add(new OutboxRow { EventId = domainEvent.Id, Lane = lane });
+            platform.Add(new OutboxRow { EventId = domainEvent.Id, Lane = lane, TenantId = tenantId });
         }
 
         await platform.SaveChangesAsync(cancellationToken);
+    }
+
+    private static Guid? TenantOf(DbContext transactionOwner)
+    {
+        if (transactionOwner is ModuleDbContext moduleContext
+            && moduleContext.TenantContext.IsResolved)
+        {
+            return moduleContext.TenantContext.TenantId;
+        }
+
+        return null;
     }
 }

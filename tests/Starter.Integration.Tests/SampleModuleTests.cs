@@ -21,6 +21,11 @@ public sealed class SampleModuleTests(StarterAppFixture fixture)
 {
     private const string Password = "Starter-Integration-Passphrase-9d2e";
 
+    // The Sample module is tenant-scoped: every request carries a tenant (the
+    // X-Tenant header here). Owner and stranger act under the SAME tenant, so
+    // the cross-user 403 is the owner check inside a tenant, not a tenant miss.
+    private readonly Guid _tenant = Guid.CreateVersion7();
+
     [Fact]
     public async Task OwnerScopedNotes_CreateReadDelete_WithAuthorizationAndDomainEvent()
     {
@@ -128,6 +133,8 @@ public sealed class SampleModuleTests(StarterAppFixture fixture)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
+
+        request.Headers.Add("X-Tenant", _tenant.ToString());
 
         if (method == HttpMethod.Post)
         {

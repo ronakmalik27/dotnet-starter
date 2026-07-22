@@ -24,6 +24,9 @@ public sealed class IdempotencyTests(StarterAppFixture fixture)
 {
     private const string Password = "Starter-Integration-Passphrase-4b7a";
 
+    // The tenant-scoped Sample create needs an active tenant (the X-Tenant header).
+    private readonly Guid _tenant = Guid.CreateVersion7();
+
     [Fact]
     public async Task SameKeyTwice_ReplaysStoredResponse_AndCreatesExactlyOneNote()
     {
@@ -104,6 +107,7 @@ public sealed class IdempotencyTests(StarterAppFixture fixture)
             Content = JsonContent.Create(new { title = "Idempotency probe", body = "worked example" }),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-Tenant", _tenant.ToString());
         if (key is not null)
         {
             request.Headers.Add("Idempotency-Key", key);

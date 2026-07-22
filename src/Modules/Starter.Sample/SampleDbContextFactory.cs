@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Starter.Platform.Data;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Sample;
 
@@ -8,5 +9,7 @@ internal sealed class SampleDbContextFactory : ModuleDbContextFactory<SampleDbCo
 {
     protected override string Schema => SampleDbContext.SchemaName;
 
-    protected override SampleDbContext Create(DbContextOptions<SampleDbContext> options) => new(options);
+    protected override SampleDbContext Create(
+        DbContextOptions<SampleDbContext> options, ITenantContext tenantContext) =>
+        new(options, tenantContext);
 }

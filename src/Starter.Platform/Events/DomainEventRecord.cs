@@ -24,6 +24,15 @@ public sealed class DomainEventRecord
     /// <summary>Null when the system acted (a scheduled job, not a user).</summary>
     public Guid? ActorUserId { get; init; }
 
+    /// <summary>
+    /// The tenant this event belongs to, or null for a genuinely platform-level
+    /// event. Stamped by <see cref="OutboxWriter"/> from the ambient tenant at
+    /// enqueue - not set by the emitting module - so the value can never
+    /// disagree with the tenant the enqueue ran under. On dispatch it drives
+    /// the consumer's tenant so the consumer runs under the same RLS boundary.
+    /// </summary>
+    public Guid? TenantId { get; internal set; }
+
     /// <summary>JSON payload; ids and scalars, never PII.</summary>
     public required string Payload { get; init; }
 }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Starter.Platform.Events;
 using Starter.Platform.Http;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Platform.Data;
 
@@ -10,9 +11,11 @@ namespace Starter.Platform.Data;
 /// and idempotency_keys - the plumbing every module shares. It also owns the
 /// DataProtection key ring (see <see cref="DataProtectionKeys"/>), so key
 /// material persists to Postgres instead of the container filesystem.
+/// Platform tables are not tenant-owned (no RLS); the context still carries an
+/// <see cref="ITenantContext"/> so it fits the one module-context shape.
 /// </summary>
-internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options)
-    : ModuleDbContext(options, SchemaName), IDataProtectionKeyContext
+internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options, ITenantContext tenantContext)
+    : ModuleDbContext(options, SchemaName, tenantContext), IDataProtectionKeyContext
 {
     internal const string SchemaName = "platform";
 
@@ -40,6 +43,10 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.ToTable("domain_events", table => table.ExcludeFromMigrations());
             entity.HasKey(e => new { e.Id, e.OccurredAt });
             entity.Property(e => e.Payload).HasColumnType("jsonb");
+            // tenant_id: not-null for tenant-owned work, null for a platform
+            // event. Query/insert-only (the raw-SQL partitioned table adds the
+            // column), so this is a mapping, not generated DDL.
+            entity.Property(e => e.TenantId);
         });
 
         modelBuilder.Entity<OutboxRow>(entity =>

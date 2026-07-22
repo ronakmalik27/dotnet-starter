@@ -22,6 +22,11 @@ public sealed class SampleListNotesTests(StarterAppFixture fixture)
 {
     private const string Password = "Starter-Integration-Passphrase-9d2e";
 
+    // The Sample module is tenant-scoped; every HTTP request in this class acts
+    // under this one tenant (the X-Tenant header), and the directly-seeded rows
+    // carry the same tenant_id so the list endpoint can see them under RLS.
+    private readonly Guid _tenant = Guid.CreateVersion7();
+
     [Fact]
     public async Task List_KeysetPaginates_OwnerScoped_NewestFirst()
     {
@@ -143,10 +148,11 @@ public sealed class SampleListNotesTests(StarterAppFixture fixture)
                 var id = Guid.CreateVersion7();
                 seededIds.Add(id);
                 await using var insert = new NpgsqlCommand(
-                    "insert into sample.notes (id, owner_user_id, title, body, created_at, updated_at) "
-                    + "values (@id, @owner, @title, @body, @created, @created)",
+                    "insert into sample.notes (id, tenant_id, owner_user_id, title, body, created_at, updated_at) "
+                    + "values (@id, @tenant, @owner, @title, @body, @created, @created)",
                     connection);
                 insert.Parameters.AddWithValue("id", id);
+                insert.Parameters.AddWithValue("tenant", _tenant);
                 insert.Parameters.AddWithValue("owner", ownerId);
                 insert.Parameters.AddWithValue("title", $"Tie note {i}");
                 insert.Parameters.AddWithValue("body", $"Body {i}");
@@ -240,6 +246,7 @@ public sealed class SampleListNotesTests(StarterAppFixture fixture)
     {
         using var request = new HttpRequestMessage(method, uri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-Tenant", _tenant.ToString());
         if (method == HttpMethod.Post)
         {
             // The create route is idempotency-gated; a fresh UUIDv7 key per POST

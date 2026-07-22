@@ -21,8 +21,15 @@ namespace Starter.Platform.Events;
 /// A consumer's lane decides which outbox row feeds it.
 /// Implementations are held by the singleton dispatcher for the process
 /// lifetime: they must be singleton-safe and resolve any scoped
-/// dependencies (DbContexts) per consume call, never via constructor
-/// injection.
+/// dependencies (DbContexts) from the per-consume scope the dispatcher passes
+/// in, never via constructor injection.
+/// <para>
+/// The dispatcher owns that scope and binds its tenant from the event's
+/// <c>tenant_id</c> before this runs, so a tenant-scoped consumer's DbContext
+/// work is bound by row-level security exactly like an HTTP request. A
+/// consumer that must legitimately span tenants uses the bypass data source
+/// instead; that is a small, named set, never the default.
+/// </para>
 /// </summary>
 public interface IDomainEventConsumer
 {
@@ -32,5 +39,14 @@ public interface IDomainEventConsumer
     /// <summary>Catalogue names this consumer subscribes to.</summary>
     IReadOnlyCollection<string> EventTypes { get; }
 
-    Task ConsumeAsync(DomainEventRecord domainEvent, CancellationToken cancellationToken);
+    /// <summary>
+    /// Handles one delivery. <paramref name="services"/> is the dispatcher's
+    /// tenant-bound scope for this event: resolve scoped dependencies
+    /// (DbContexts) from it. Do not dispose it - the dispatcher owns its
+    /// lifetime.
+    /// </summary>
+    Task ConsumeAsync(
+        IServiceProvider services,
+        DomainEventRecord domainEvent,
+        CancellationToken cancellationToken);
 }

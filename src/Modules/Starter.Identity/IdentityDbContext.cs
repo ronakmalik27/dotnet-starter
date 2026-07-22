@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Starter.Identity.Domain;
 using Starter.Platform.Data;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Identity;
 
@@ -9,10 +10,12 @@ namespace Starter.Identity;
 /// nothing else. The schema binding and conventions
 /// come from ModuleDbContext; users, auth_methods, sessions, and
 /// one_time_tokens landed first - the
-/// remaining identity tables join with their stories.
+/// remaining identity tables join with their stories. Users are global, so
+/// nothing here is tenant-owned; the context carries an ITenantContext only to
+/// fit the one module-context shape.
 /// </summary>
-internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> options)
-    : ModuleDbContext(options, SchemaName)
+internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> options, ITenantContext tenantContext)
+    : ModuleDbContext(options, SchemaName, tenantContext)
 {
     internal const string SchemaName = "identity";
 

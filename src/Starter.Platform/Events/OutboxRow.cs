@@ -12,6 +12,13 @@ public sealed class OutboxRow
 
     public required Lane Lane { get; init; }
 
+    /// <summary>
+    /// The event's tenant (null for a platform event), copied from the
+    /// domain-event row at enqueue so the dispatcher can bind the consumer's
+    /// tenant from the claimed outbox row.
+    /// </summary>
+    public Guid? TenantId { get; init; }
+
     public DateTimeOffset EnqueuedAt { get; init; }
 
     public int Attempts { get; set; }

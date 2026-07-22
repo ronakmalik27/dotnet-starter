@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Platform.Data;
 
@@ -17,7 +18,12 @@ public abstract class ModuleDbContextFactory<TContext> : IDesignTimeDbContextFac
 
     protected abstract string Schema { get; }
 
-    protected abstract TContext Create(DbContextOptions<TContext> options);
+    /// <summary>
+    /// Builds the context. Design time has no request, so the base passes an
+    /// unresolved tenant context: migrations do not touch tenant data, and the
+    /// interceptor is a no-op with no tenant set.
+    /// </summary>
+    protected abstract TContext Create(DbContextOptions<TContext> options, ITenantContext tenantContext);
 
     public TContext CreateDbContext(string[] args)
     {
@@ -28,6 +34,6 @@ public abstract class ModuleDbContextFactory<TContext> : IDesignTimeDbContextFac
             .ForSchema<TContext>(connectionString, Schema)
             .Options;
 
-        return Create(options);
+        return Create(options, NoTenant.Instance);
     }
 }

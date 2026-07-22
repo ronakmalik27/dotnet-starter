@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Starter.Sample.Domain;
+using Starter.Platform.Data;
 using Starter.Platform.Events;
 using Starter.Platform.Http;
+using Starter.Platform.Tenancy;
 using Starter.SharedKernel;
 
 namespace Starter.Sample.CreateNote;
@@ -24,7 +26,7 @@ namespace Starter.Sample.CreateNote;
 /// Absent the filter, the handler owns the transaction end to end.
 /// </para>
 /// </summary>
-internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox, Clock clock)
+internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox, Clock clock, ITenantContext tenant)
 {
     public async Task<Result<Guid>> HandleAsync(
         Guid ownerUserId,
@@ -51,6 +53,9 @@ internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox,
         var note = new Note
         {
             Id = Ids.NewId(now),
+            // Stamped from the tenant context, never from client input. RLS's
+            // WITH CHECK rejects the INSERT if this disagrees with the GUC.
+            TenantId = tenant.TenantId,
             OwnerUserId = ownerUserId,
             Title = title,
             Body = body,
@@ -69,12 +74,13 @@ internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox,
             // row, its outbox rows, and the stored idempotency response commit
             // as one unit. (The connection/transaction lifetime is the
             // filter's; this context only borrows them, so it is not disposed
-            // with a rollback of its own.)
-            var options = new DbContextOptionsBuilder<SampleDbContext>()
-                .UseNpgsql(idempotentTransaction.Connection)
-                .UseSnakeCaseNamingConvention()
-                .Options;
-            await using var enlisted = new SampleDbContext(options);
+            // with a rollback of its own.) ForConnection carries the tenant
+            // interceptor, so enlisting the transaction sets the RLS GUC on the
+            // shared connection before the note INSERT; the enlisted context
+            // gets the SAME tenant so its query filter and the GUC agree.
+            var options = StarterDbContextOptions.ForConnection<SampleDbContext>(
+                idempotentTransaction.Connection).Options;
+            await using var enlisted = new SampleDbContext(options, tenant);
             await enlisted.Database.UseTransactionAsync(idempotentTransaction.Transaction, cancellationToken);
 
             enlisted.Notes.Add(note);

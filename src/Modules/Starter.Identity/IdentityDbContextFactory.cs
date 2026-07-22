@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Starter.Platform.Data;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Identity;
 
@@ -8,5 +9,7 @@ internal sealed class IdentityDbContextFactory : ModuleDbContextFactory<Identity
 {
     protected override string Schema => IdentityDbContext.SchemaName;
 
-    protected override IdentityDbContext Create(DbContextOptions<IdentityDbContext> options) => new(options);
+    protected override IdentityDbContext Create(
+        DbContextOptions<IdentityDbContext> options, ITenantContext tenantContext) =>
+        new(options, tenantContext);
 }

@@ -22,6 +22,11 @@ public sealed class VerifiedEmailWriteGateTests(StarterAppFixture fixture)
 {
     private const string Password = "Starter-Integration-Passphrase-6e3d";
 
+    // The tenant-scoped Sample create needs an active tenant. It is supplied so
+    // the request reaches the verified-email gate (the subject here), rather
+    // than short-circuiting on a missing tenant.
+    private readonly Guid _tenant = Guid.CreateVersion7();
+
     [Fact]
     public async Task UnverifiedCaller_CreateNote_Is403VerificationRequired()
     {
@@ -76,6 +81,7 @@ public sealed class VerifiedEmailWriteGateTests(StarterAppFixture fixture)
             Content = JsonContent.Create(new { title = "Gate probe", body = "verify to write" }),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-Tenant", _tenant.ToString());
         request.Headers.Add("Idempotency-Key", Guid.CreateVersion7().ToString());
 
         return await fixture.Client.SendAsync(request, cancellationToken);

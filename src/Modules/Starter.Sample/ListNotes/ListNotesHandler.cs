@@ -10,7 +10,11 @@ namespace Starter.Sample.ListNotes;
 /// convention: filter by owner, apply the keyset predicate for the cursor
 /// position, order by the sort key, and take limit+1 to learn whether a
 /// further page exists (the extra row is trimmed and its predecessor's sort
-/// key becomes the next cursor). A read has no transaction and no outbox.
+/// key becomes the next cursor). The read runs in an explicit transaction so
+/// the tenant interceptor sets the RLS GUC (a read with no tenant is
+/// fail-closed: zero rows). Owner scoping is layered on top of the tenant
+/// boundary, so the list is intrinsically the caller's own notes within the
+/// active tenant.
 /// </summary>
 internal sealed class ListNotesHandler(SampleDbContext db)
 {
@@ -32,6 +36,8 @@ internal sealed class ListNotesHandler(SampleDbContext db)
 
             after = decoded;
         }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         var query = db.Notes
             .AsNoTracking()
@@ -62,6 +68,8 @@ internal sealed class ListNotesHandler(SampleDbContext db)
                 note.UpdatedAt,
             })
             .ToListAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
 
         string? nextCursor = null;
         if (rows.Count > limit)

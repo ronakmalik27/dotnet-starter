@@ -46,7 +46,10 @@ public class OutboxRoutingTests
 
         public IReadOnlyCollection<string> EventTypes { get; } = eventTypes;
 
-        public Task ConsumeAsync(DomainEventRecord domainEvent, CancellationToken cancellationToken) =>
+        public Task ConsumeAsync(
+            IServiceProvider services,
+            DomainEventRecord domainEvent,
+            CancellationToken cancellationToken) =>
             Task.CompletedTask;
     }
 }

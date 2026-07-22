@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Starter.Platform.Notifications;
+using Starter.Platform.Tenancy;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -48,8 +49,23 @@ public sealed class StarterAppFixture : IAsyncLifetime
     public WebApplicationFactory<Program> Factory => _factory
         ?? throw new InvalidOperationException("Fixture not initialized.");
 
-    /// <summary>The container connection string, for direct SQL assertions.</summary>
+    /// <summary>The container connection string (the admin superuser), for direct SQL seeding and assertions - bypasses RLS.</summary>
     public string ConnectionString => _postgres.GetConnectionString();
+
+    /// <summary>
+    /// The RLS-bound request-role data source (the same one every request path
+    /// uses). Isolation tests open raw connections here to prove RLS holds
+    /// below EF - the request role is subject to the tenant policy.
+    /// </summary>
+    public NpgsqlDataSource RequestDataSource =>
+        Factory.Services.GetRequiredService<NpgsqlDataSource>();
+
+    /// <summary>
+    /// The RLS-exempt bypass-role data source (the escape hatch). Isolation
+    /// tests use it to prove it, and only it, crosses tenants.
+    /// </summary>
+    public NpgsqlDataSource BypassDataSource =>
+        Factory.Services.GetRequiredService<BypassDataSource>().DataSource;
 
     public async ValueTask InitializeAsync()
     {

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Platform.Data;
 
@@ -7,5 +8,7 @@ internal sealed class PlatformDbContextFactory : ModuleDbContextFactory<Platform
 {
     protected override string Schema => PlatformDbContext.SchemaName;
 
-    protected override PlatformDbContext Create(DbContextOptions<PlatformDbContext> options) => new(options);
+    protected override PlatformDbContext Create(
+        DbContextOptions<PlatformDbContext> options, ITenantContext tenantContext) =>
+        new(options, tenantContext);
 }

@@ -3,7 +3,9 @@ using Starter.Sample.CreateNote;
 using Starter.Sample.DeleteNote;
 using Starter.Sample.GetNote;
 using Starter.Sample.ListNotes;
+using Starter.Sample.NoteIndexing;
 using Starter.Platform.Data;
+using Starter.Platform.Events;
 
 namespace Starter.Sample;
 
@@ -35,6 +37,11 @@ public static class SampleModule
         services.AddScoped<DeleteNoteHandler>();
         services.AddScoped<ListNotesHandler>();
         services.AddScoped<ISampleApi, SampleApi>();
+
+        // The tenant-scoped read-model consumer (fast lane). Singleton and
+        // singleton-safe: it resolves the scoped context from the dispatcher's
+        // per-consume scope. Only registered with persistence, like the module.
+        services.AddSingleton<IDomainEventConsumer, NoteIndexConsumer>();
 
         return services;
     }
