@@ -27,6 +27,15 @@ internal sealed class Session
     /// </summary>
     public required int TokenVersion { get; init; }
 
+    /// <summary>
+    /// The tenant this session is bound to, or null when no tenant is selected.
+    /// Login issues a tenant-less session (null); self-serve signup and the
+    /// tenant-switch mint bind a tenant, which flows into the access token's
+    /// <c>tid</c> claim. Refresh preserves it, so a rotated session keeps the
+    /// same tenant.
+    /// </summary>
+    public Guid? TenantId { get; set; }
+
     public string? DeviceLabel { get; init; }
 
     public string? Ip { get; init; }

@@ -13,6 +13,7 @@ using Starter.Identity.Register;
 using Starter.Identity.SetPassword;
 using Starter.Identity.Tokens;
 using Starter.Identity.Verification;
+using Starter.Platform.Auth;
 using Starter.Platform.Data;
 using Starter.Platform.Events;
 
@@ -98,6 +99,9 @@ public static class IdentityModule
 
         services.AddScoped<SessionIssuer>();
         services.AddScoped<RegisterHandler>();
+        services.AddScoped<RegistrationStagingHandler>();
+        services.AddScoped<IssueSessionForHandler>();
+        services.AddScoped<SelectTenantHandler>();
         services.AddScoped<LoginHandler>();
         services.AddScoped<RefreshHandler>();
         services.AddScoped<GoogleSignInHandler>();
@@ -110,6 +114,12 @@ public static class IdentityModule
         services.AddScoped<ResendVerificationHandler>();
         services.AddScoped<VerifiedEmailQuery>();
         services.AddScoped<IIdentityApi, IdentityApi>();
+
+        // Bridge the platform-declared provisioning port to the same IIdentityApi
+        // instance, so the tenancy provisioner depends on the port (never on this
+        // module) and there is one implementation with no drift.
+        services.AddScoped<ITenantProvisioningIdentity>(
+            provider => provider.GetRequiredService<IIdentityApi>());
 
         // The account-security notifications consumer. Singleton and
         // singleton-safe (it resolves the scoped context per consume). Only

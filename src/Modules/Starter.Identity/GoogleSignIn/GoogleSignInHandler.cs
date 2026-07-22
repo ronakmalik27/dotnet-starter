@@ -245,7 +245,8 @@ internal sealed class GoogleSignInHandler(
         // successful path funnels through.
         async Task<Result<IssuedTokens>> IssueAndCommitAsync(User user)
         {
-            var tokens = await sessions.IssueAsync(user, deviceLabel, ipAddress, now, cancellationToken);
+            // Google sign-in is tenant-less like a password login: no tid bound.
+            var tokens = await sessions.IssueAsync(user, tenantId: null, deviceLabel, ipAddress, now, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return tokens;
         }

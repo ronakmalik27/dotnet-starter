@@ -58,6 +58,7 @@ internal sealed class TenantContext : ITenantContext
 /// for the contexts that are never tenant-scoped - the design-time migration
 /// factory and the outbox writer's platform-schema context (platform tables
 /// carry no RLS). It can never resolve a tenant, so it can never set the GUC.
+/// Reached across assemblies through <see cref="ITenantContext.None"/>.
 /// </summary>
 internal sealed class NoTenant : ITenantContext
 {
@@ -72,4 +73,21 @@ internal sealed class NoTenant : ITenantContext
     public string? Slug => null;
 
     public bool IsResolved => false;
+}
+
+/// <summary>
+/// The immutable "this exact tenant" context, reached across assemblies through
+/// <see cref="ITenantContext.ForTenant"/>. Unlike <see cref="TenantContext"/> it
+/// has no setters, so a caller can bind a context to a fixed tenant but can
+/// never re-point it. Used by the self-serve provisioner on the bypass path, so
+/// the tenant it carries stamps the outbox events and the query filter without
+/// touching the request-scoped context.
+/// </summary>
+internal sealed class FixedTenant(Guid tenantId) : ITenantContext
+{
+    public Guid TenantId { get; } = tenantId;
+
+    public string? Slug => null;
+
+    public bool IsResolved => TenantId != Guid.Empty;
 }

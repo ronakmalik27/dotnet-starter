@@ -409,7 +409,8 @@
           "Starter.Identity": "[1.0.0, )",
           "Starter.Platform": "[1.0.0, )",
           "Starter.Sample": "[1.0.0, )",
-          "Starter.SharedKernel": "[1.0.0, )"
+          "Starter.SharedKernel": "[1.0.0, )",
+          "Starter.Tenancy": "[1.0.0, )"
         }
       },
       "starter.app": {
@@ -428,7 +429,8 @@
           "Starter.Identity": "[1.0.0, )",
           "Starter.Platform": "[1.0.0, )",
           "Starter.Sample": "[1.0.0, )",
-          "Starter.SharedKernel": "[1.0.0, )"
+          "Starter.SharedKernel": "[1.0.0, )",
+          "Starter.Tenancy": "[1.0.0, )"
         }
       },
       "starter.identity": {
@@ -468,6 +470,15 @@
       },
       "starter.sharedkernel": {
         "type": "Project"
+      },
+      "starter.tenancy": {
+        "type": "Project",
+        "dependencies": {
+          "EFCore.NamingConventions": "[10.0.1, )",
+          "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.2, )",
+          "Starter.Platform": "[1.0.0, )",
+          "Starter.SharedKernel": "[1.0.0, )"
+        }
       },
       "Asp.Versioning.Http": {
         "type": "CentralTransitive",

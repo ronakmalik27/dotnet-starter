@@ -109,6 +109,10 @@ internal sealed class RefreshHandler(
             FamilyId = session.FamilyId,
             RefreshHash = RefreshTokens.Hash(newToken),
             TokenVersion = user.TokenVersion,
+            // Refresh preserves the selected tenant: the rotated session keeps
+            // the retired one's tenant, so the reissued access token carries the
+            // same tid and a tenant switch survives rotation.
+            TenantId = session.TenantId,
             DeviceLabel = session.DeviceLabel,
             Ip = ipAddress ?? session.Ip,
             CreatedAt = now,
@@ -121,7 +125,7 @@ internal sealed class RefreshHandler(
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        var accessToken = accessTokens.Issue(user.Id, rotated.Id, user.TokenVersion, now);
+        var accessToken = accessTokens.Issue(user.Id, rotated.Id, user.TokenVersion, now, rotated.TenantId);
         return new IssuedTokens(
             user.Id,
             rotated.Id,

@@ -22,4 +22,18 @@ public static class ClaimsPrincipalExtensions
         var sub = principal.FindFirst(StarterClaims.Sub)?.Value;
         return Guid.TryParse(sub, out var userId) ? userId : null;
     }
+
+    /// <summary>
+    /// The session id backing this token from the sid claim
+    /// (<see cref="StarterClaims.Sid"/>), or null when the claim is absent or
+    /// unparseable. The tenant-switch mint reads it to reissue the access token
+    /// for the same session. Callers fail closed on null.
+    /// </summary>
+    public static Guid? GetSessionId(this ClaimsPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        var sid = principal.FindFirst(StarterClaims.Sid)?.Value;
+        return Guid.TryParse(sid, out var sessionId) ? sessionId : null;
+    }
 }

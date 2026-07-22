@@ -1,3 +1,5 @@
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore.Storage;
 using Starter.Identity.ChangePassword;
 using Starter.Identity.GoogleSignIn;
 using Starter.Identity.Login;
@@ -5,6 +7,7 @@ using Starter.Identity.PasswordReset;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
 using Starter.Identity.SetPassword;
+using Starter.Identity.Tokens;
 using Starter.Identity.Verification;
 using Starter.Platform.Auth;
 using Starter.SharedKernel;
@@ -28,7 +31,11 @@ internal sealed class IdentityApi(
     VerifyEmailHandler verifyEmail,
     VerificationStatusHandler verificationStatus,
     ResendVerificationHandler resendVerification,
-    VerifiedEmailQuery verifiedEmail) : IIdentityApi
+    VerifiedEmailQuery verifiedEmail,
+    RegistrationStagingHandler registrationStaging,
+    VerificationEmailComposer verificationEmail,
+    IssueSessionForHandler issueSessionFor,
+    SelectTenantHandler selectTenant) : IIdentityApi
 {
     public Task<Result> RegisterAsync(string email, string password, CancellationToken cancellationToken) =>
         register.HandleAsync(email, password, cancellationToken);
@@ -88,4 +95,30 @@ internal sealed class IdentityApi(
 
     public Task<bool> IsEmailVerifiedAsync(Guid userId, CancellationToken cancellationToken) =>
         verifiedEmail.IsVerifiedAsync(userId, cancellationToken);
+
+    public Task<Result<StagedRegistration>> StageRegistrationAsync(
+        DbConnection sharedConnection,
+        IDbContextTransaction sharedTransaction,
+        string email,
+        string password,
+        CancellationToken cancellationToken) =>
+        registrationStaging.HandleAsync(sharedConnection, sharedTransaction, email, password, cancellationToken);
+
+    public Task SendVerificationEmailAsync(string email, string rawToken, CancellationToken cancellationToken) =>
+        verificationEmail.SendVerificationEmailAsync(email, rawToken, cancellationToken);
+
+    public Task<Result<IssuedTokens>> IssueSessionForAsync(
+        Guid userId,
+        Guid? tenantId,
+        string? deviceLabel,
+        string? ipAddress,
+        CancellationToken cancellationToken) =>
+        issueSessionFor.HandleAsync(userId, tenantId, deviceLabel, ipAddress, cancellationToken);
+
+    public Task<Result<TenantAccessToken>> SelectTenantAsync(
+        Guid userId,
+        Guid sessionId,
+        Guid tenantId,
+        CancellationToken cancellationToken) =>
+        selectTenant.HandleAsync(userId, sessionId, tenantId, cancellationToken);
 }

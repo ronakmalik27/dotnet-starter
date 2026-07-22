@@ -9,8 +9,14 @@ namespace Starter.Identity;
 /// composes the HTTP endpoints over these commands (modules never
 /// self-host routes). Signatures use primitives and platform contract
 /// types only: the module exports no other public type (ModuleSurfaceTests).
+/// <para>
+/// It inherits <see cref="ITenantProvisioningIdentity"/> (the platform-declared
+/// staging / verification-email / session-issue seam), so the tenancy
+/// provisioner can depend on that port without the Tenancy module referencing
+/// this one. The composition root registers the same instance for both.
+/// </para>
 /// </summary>
-public interface IIdentityApi
+public interface IIdentityApi : ITenantProvisioningIdentity
 {
     /// <summary>
     /// Registration. Success is deliberately empty and
@@ -144,4 +150,24 @@ public interface IIdentityApi
     /// row is false.
     /// </summary>
     Task<bool> IsEmailVerifiedAsync(Guid userId, CancellationToken cancellationToken);
+
+    // StageRegistrationAsync, SendVerificationEmailAsync, and IssueSessionForAsync
+    // are inherited from ITenantProvisioningIdentity (the platform-declared
+    // provisioning seam), so the tenancy module can depend on that port without
+    // referencing this module. SelectTenantAsync stays here: only the endpoint
+    // layer calls it, through IIdentityApi.
+
+    /// <summary>
+    /// The tenant-switch mint: reissues the access token for an existing live
+    /// session (proved to belong to <paramref name="userId"/>), now bound to
+    /// <paramref name="tenantId"/> and carrying its tid. Same session and
+    /// refresh family, no new refresh token; the tenant is stamped on the
+    /// session row so a later refresh preserves it. A revoked, expired, or
+    /// version-stale session is a generic Unauthorized.
+    /// </summary>
+    Task<Result<TenantAccessToken>> SelectTenantAsync(
+        Guid userId,
+        Guid sessionId,
+        Guid tenantId,
+        CancellationToken cancellationToken);
 }

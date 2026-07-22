@@ -32,12 +32,16 @@ public abstract class ModuleDbContext : DbContext
     public string Schema { get; }
 
     /// <summary>
-    /// The active tenant for this context's unit of work. Internal: only the
-    /// platform's interceptor and outbox writer read it, and the query filter
-    /// (via <see cref="ApplyTenantFilter{TEntity}"/>) references it as an
-    /// instance member so EF parameterizes it per query.
+    /// The active tenant for this context's unit of work. The platform's
+    /// interceptor and outbox writer read it, and the query filter (via
+    /// <see cref="ApplyTenantFilter{TEntity}"/>) references it as an instance
+    /// member so EF parameterizes it per query. Protected-internal so a module
+    /// context whose primary key IS the tenant discriminator (the tenants table)
+    /// can write its own filter keyed on the id column; the setters still live
+    /// only on the platform's concrete <c>TenantContext</c>, so a subclass can
+    /// read the active tenant but never widen it.
     /// </summary>
-    internal ITenantContext TenantContext { get; }
+    protected internal ITenantContext TenantContext { get; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

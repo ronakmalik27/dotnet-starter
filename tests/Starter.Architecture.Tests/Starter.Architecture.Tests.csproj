@@ -25,5 +25,6 @@
     <ProjectReference Include="../../src/Starter.App/Starter.App.csproj" />
     <ProjectReference Include="../../src/Modules/Starter.Identity/Starter.Identity.csproj" />
     <ProjectReference Include="../../src/Modules/Starter.Sample/Starter.Sample.csproj" />
+    <ProjectReference Include="../../src/Modules/Starter.Tenancy/Starter.Tenancy.csproj" />
   </ItemGroup>
 </Project>

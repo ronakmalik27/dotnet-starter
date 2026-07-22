@@ -88,7 +88,8 @@ internal sealed class LoginHandler(
         // The credential is proven: the issuer commits the new session row
         // and the rehash update tracked above in one transaction
         // (the same method-agnostic issuance Google
-        // sign-in rides).
-        return await sessions.IssueAsync(user, deviceLabel, ipAddress, now, cancellationToken);
+        // sign-in rides). Login is tenant-less: the session binds no tenant, so
+        // the access token carries no tid and the caller selects a tenant next.
+        return await sessions.IssueAsync(user, tenantId: null, deviceLabel, ipAddress, now, cancellationToken);
     }
 }

@@ -11,11 +11,19 @@ namespace Starter.Architecture.Tests;
 /// reached through a separate connection source, never an in-band switch). It
 /// is a public root singleton, so nothing but this rule stops a module handler
 /// - or a consumer, which is handed an IServiceProvider - from resolving it and
-/// bypassing the tenant boundary. This fails the build if any type in a module
-/// assembly (Starter.Identity, Starter.Sample) or the endpoint layer
-/// (Starter.Api) references it. Only the composition root (Starter.App) and
-/// explicitly cross-tenant platform code may. It matters more once the control
-/// plane (increments 3-4) runs on the bypass path.
+/// bypassing the tenant boundary. This fails the build if any type in the fully-
+/// banned module assemblies (Starter.Identity, Starter.Sample) or the endpoint
+/// layer (Starter.Api) references it.
+/// <para>
+/// Starter.Tenancy is the exception, and a narrow one: crossing tenants IS its
+/// job for the control plane (multi-tenancy.md section 10), but only for a named
+/// allowlist of two types - the self-serve <c>TenantProvisioner</c> (a new
+/// tenant boundary must be created before any tenant context exists) and the
+/// <c>MembershipDirectory</c> (the tenant-token mint check keys on a tenant the
+/// caller holds no tid for yet). Every OTHER Tenancy type stays banned, so the
+/// allowlist is the literal, enforced definition of "explicitly cross-tenant
+/// platform code". Only the composition root (Starter.App) is otherwise allowed.
+/// </para>
 /// <para>
 /// This walks IL with Mono.Cecil directly rather than the ArchUnitNET fluent
 /// model, for the same reason <see cref="BannedApiTests"/> walks dependencies
@@ -23,12 +31,21 @@ namespace Starter.Architecture.Tests;
 /// generic argument at a call site (the idiomatic
 /// <c>GetRequiredService&lt;BypassDataSource&gt;()</c> vector), so a fluent rule
 /// would pass vacuously and give false confidence. Cecil surfaces the generic
-/// argument in the instruction operand, so this catches it.
+/// argument in the instruction operand, so this catches it - including the
+/// compiler-generated async state machines nested under the allowlisted types.
 /// </para>
 /// </summary>
 public class BypassDataSourceContainmentTests
 {
     private const string BypassTypeFullName = "Starter.Platform.Tenancy.BypassDataSource";
+
+    // The only types permitted to touch the bypass data source, both in
+    // Starter.Tenancy and both genuinely cross-tenant control-plane work.
+    private static readonly string[] TenancyAllowlist =
+    [
+        "Starter.Tenancy.ControlPlane.TenantProvisioner",
+        "Starter.Tenancy.ControlPlane.MembershipDirectory",
+    ];
 
     [Fact]
     public void ModulesAndApi_DoNotReference_TheBypassDataSource()
@@ -51,6 +68,38 @@ public class BypassDataSourceContainmentTests
             + "(multi-tenancy.md section 2); only the composition root and explicitly cross-tenant "
             + "platform code may resolve it");
     }
+
+    [Fact]
+    public void Tenancy_ReferencesBypass_OnlyFromTheControlPlaneAllowlist()
+    {
+        var tenancy = typeof(Starter.Tenancy.ITenancyApi).Assembly.Location;
+
+        var hits = ReferencesToBypass(tenancy);
+        var violations = hits.Where(hit => !IsAllowlisted(hit)).Distinct().ToList();
+
+        violations.ShouldBeEmpty(
+            "only the allowlisted control-plane types (TenantProvisioner, MembershipDirectory) may "
+            + "reach the bypass data source; every other Tenancy type is request/consumer code and "
+            + "stays bound by the tenant boundary (multi-tenancy.md sections 2 and 10)");
+
+        // Guards against a vacuous allowlist: if the allowlisted types no longer
+        // use the bypass source (a refactor that moved the cross-tenant work),
+        // the allowlist is dead and this rule would silently protect nothing.
+        var allowlistedHits = hits.Where(IsAllowlisted).ToList();
+        allowlistedHits.ShouldNotBeEmpty(
+            "the allowlisted control-plane types must actually use the bypass data source, "
+            + "or the allowlist is stale");
+    }
+
+    private static bool IsAllowlisted(string hit) =>
+        TenancyAllowlist.Any(allowed =>
+            hit.StartsWith(allowed, StringComparison.Ordinal)
+            && hit.Length > allowed.Length
+            // The hit is "<type>.<member> (...)"; the char after the type name
+            // is '.' for the type's own members, or '/' '+' for a nested
+            // compiler-generated type (the async state machine). This avoids a
+            // prefix collision with a hypothetical "TenantProvisionerOther".
+            && hit[allowed.Length] is '.' or '/' or '+');
 
     private static List<string> ReferencesToBypass(string assemblyPath)
     {

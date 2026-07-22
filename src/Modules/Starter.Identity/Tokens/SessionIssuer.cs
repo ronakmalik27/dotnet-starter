@@ -31,6 +31,7 @@ internal sealed class SessionIssuer(
     /// </summary>
     public async Task<IssuedTokens> IssueAsync(
         User user,
+        Guid? tenantId,
         string? deviceLabel,
         string? ipAddress,
         DateTimeOffset now,
@@ -44,6 +45,9 @@ internal sealed class SessionIssuer(
             FamilyId = Ids.NewId(now),
             RefreshHash = RefreshTokens.Hash(refreshToken),
             TokenVersion = user.TokenVersion,
+            // Bound to the tenant the caller passed (self-serve signup binds the
+            // new tenant); null for a plain login. Refresh preserves it.
+            TenantId = tenantId,
             DeviceLabel = deviceLabel,
             Ip = ipAddress,
             CreatedAt = now,
@@ -79,7 +83,7 @@ internal sealed class SessionIssuer(
             }
         }
 
-        var accessToken = accessTokens.Issue(user.Id, session.Id, user.TokenVersion, now);
+        var accessToken = accessTokens.Issue(user.Id, session.Id, user.TokenVersion, now, tenantId);
         return new IssuedTokens(
             user.Id,
             session.Id,

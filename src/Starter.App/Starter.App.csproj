@@ -16,6 +16,7 @@
     <ProjectReference Include="../Starter.Api/Starter.Api.csproj" />
     <ProjectReference Include="../Modules/Starter.Identity/Starter.Identity.csproj" />
     <ProjectReference Include="../Modules/Starter.Sample/Starter.Sample.csproj" />
+    <ProjectReference Include="../Modules/Starter.Tenancy/Starter.Tenancy.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Asp.Versioning.Http" />

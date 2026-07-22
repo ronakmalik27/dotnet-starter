@@ -32,6 +32,14 @@ public sealed class StarterAppFixture : IAsyncLifetime
     private const string MigrateKey = "Database__MigrateOnStartup";
     private const string SigningKeyKey = "Auth__SigningKeyPem";
 
+    // Lift the anonymous-signup rate limit for the shared test host. Production
+    // caps signup at a few per minute per IP; every in-process test request
+    // shares one partition (no distinct client IP), so a real cap would 429 the
+    // provisioning suite. The limiter's mapping is not the subject here - the
+    // signup endpoint's named policy reads this config value, so the test host
+    // sets it far above any test's volume.
+    private const string SignupRateLimitKey = "RateLimiting__SignupPerMinute";
+
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17")
         .Build();
 
@@ -82,6 +90,7 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(PostgresKey, _postgres.GetConnectionString());
         Environment.SetEnvironmentVariable(MigrateKey, "true");
         Environment.SetEnvironmentVariable(SigningKeyKey, CreateEs256PrivateKeyPem());
+        Environment.SetEnvironmentVariable(SignupRateLimitKey, "100000");
 
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
@@ -129,6 +138,7 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(PostgresKey, null);
         Environment.SetEnvironmentVariable(MigrateKey, null);
         Environment.SetEnvironmentVariable(SigningKeyKey, null);
+        Environment.SetEnvironmentVariable(SignupRateLimitKey, null);
     }
 
     /// <summary>

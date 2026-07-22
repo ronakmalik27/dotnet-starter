@@ -14,6 +14,7 @@ public static class StarterModules
     [
         typeof(Starter.Identity.IIdentityApi),
         typeof(Starter.Sample.ISampleApi),
+        typeof(Starter.Tenancy.ITenancyApi),
     ];
 
     public static TheoryData<Type> ApiTypeData()

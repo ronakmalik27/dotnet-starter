@@ -50,9 +50,17 @@ internal static class HttpTestHelpers
     /// verifying its signature: base64url-decode the payload segment and read
     /// "sub". For test assertions only - never a substitute for verification.
     /// </summary>
-    public static Guid ReadSubject(string accessToken)
+    public static Guid ReadSubject(string accessToken) =>
+        Guid.Parse(ReadClaim(accessToken, "sub") ?? throw new InvalidOperationException("No sub claim."));
+
+    /// <summary>
+    /// Reads a string claim out of an access JWT without verifying its
+    /// signature, or null when the claim is absent. For test assertions only.
+    /// </summary>
+    public static string? ReadClaim(string accessToken, string claim)
     {
         ArgumentNullException.ThrowIfNull(accessToken);
+        ArgumentNullException.ThrowIfNull(claim);
 
         var segments = accessToken.Split('.');
         if (segments.Length < 2)
@@ -63,7 +71,7 @@ internal static class HttpTestHelpers
         var payload = segments[1].Replace('-', '+').Replace('_', '/');
         payload = payload.PadRight(payload.Length + ((4 - (payload.Length % 4)) % 4), '=');
         using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
-        return Guid.Parse(doc.RootElement.GetProperty("sub").GetString()!);
+        return doc.RootElement.TryGetProperty(claim, out var value) ? value.GetString() : null;
     }
 
     /// <summary>

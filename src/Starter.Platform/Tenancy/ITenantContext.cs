@@ -33,4 +33,26 @@ public interface ITenantContext
     /// reached with this false answers 400 <c>starter:tenant-required</c>.
     /// </summary>
     bool IsResolved { get; }
+
+    /// <summary>
+    /// The immutable no-tenant context: never resolves a tenant, so it can
+    /// never set the RLS GUC. Reachable across assemblies for the contexts that
+    /// are never tenant-scoped by construction - the Identity registration-
+    /// staging seam builds its context with this so a staged UserRegistered is
+    /// stamped tenant_id = null (a global event). Exposing it widens nothing: it
+    /// can only ever be the empty, unresolved tenant.
+    /// </summary>
+    static ITenantContext None => NoTenant.Instance;
+
+    /// <summary>
+    /// An immutable context resolved to a specific tenant, for the control-plane
+    /// paths that run on the bypass data source and must stamp a known tenant on
+    /// their writes and events (self-serve provisioning binds the new tenant so
+    /// its TenantCreated / MembershipCreated events carry tenant_id = the new
+    /// tenant). It runs on the BYPASSRLS role, so the GUC it sets is not an
+    /// enforcement boundary; it exists only to carry the tenant to the outbox
+    /// writer and the query filter. A request-scoped path never uses this - it
+    /// takes the scoped <see cref="TenantContext"/> the middleware sets.
+    /// </summary>
+    static ITenantContext ForTenant(Guid tenantId) => new FixedTenant(tenantId);
 }

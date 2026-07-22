@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The tenancy control-plane module: tenants, memberships, self-serve
+    provisioning, and the tid token mint. Public surface is exactly the
+    ITenancyApi interface plus the TenancyModule bootstrap class; everything
+    else stays internal. Within the solution a module references only the
+    SharedKernel and Platform, never another module; the architecture tests
+    enforce this. The self-serve provisioner is the one control-plane type
+    allowed to touch the bypass data source (BypassDataSourceContainmentTests
+    allowlist).
+  -->
+  <ItemGroup>
+    <!-- The integration suite drives provisioning over HTTP and asserts on the
+         schema with raw SQL; it needs no internal types today, so this is not
+         opened up. -->
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Starter.SharedKernel/Starter.SharedKernel.csproj" />
+    <ProjectReference Include="../../Starter.Platform/Starter.Platform.csproj" />
+  </ItemGroup>
+</Project>

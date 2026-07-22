@@ -92,6 +92,15 @@
       "starter.sharedkernel": {
         "type": "Project"
       },
+      "starter.tenancy": {
+        "type": "Project",
+        "dependencies": {
+          "EFCore.NamingConventions": "[10.0.1, )",
+          "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.2, )",
+          "Starter.Platform": "[1.0.0, )",
+          "Starter.SharedKernel": "[1.0.0, )"
+        }
+      },
       "EFCore.NamingConventions": {
         "type": "CentralTransitive",
         "requested": "[10.0.1, )",

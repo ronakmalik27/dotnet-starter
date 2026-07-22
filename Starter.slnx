@@ -8,6 +8,7 @@
   <Folder Name="/src/Modules/">
     <Project Path="src/Modules/Starter.Identity/Starter.Identity.csproj" />
     <Project Path="src/Modules/Starter.Sample/Starter.Sample.csproj" />
+    <Project Path="src/Modules/Starter.Tenancy/Starter.Tenancy.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Starter.Architecture.Tests/Starter.Architecture.Tests.csproj" />

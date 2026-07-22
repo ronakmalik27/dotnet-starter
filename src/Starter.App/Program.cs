@@ -16,9 +16,11 @@ using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 using Starter.Api.Identity;
 using Starter.Api.Sample;
+using Starter.Api.Tenancy;
 using Starter.App.Persistence;
 using Starter.Identity;
 using Starter.Sample;
+using Starter.Tenancy;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
 using Starter.Platform.DataProtection;
@@ -99,6 +101,22 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+
+    // A tighter named policy for anonymous self-serve signup: creating tenants
+    // and accounts is abuse-sensitive, so it is bound well below the global
+    // ceiling, partitioned by client IP. The per-minute count is configurable
+    // (RateLimiting:SignupPerMinute) so a test or a trusted deployment can lift
+    // it; the conservative default holds in production.
+    var signupPerMinute = builder.Configuration.GetValue<int?>("RateLimiting:SignupPerMinute") ?? 5;
+    options.AddPolicy(TenancyEndpoints.SignupRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = signupPerMinute,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
@@ -265,7 +283,14 @@ if (postgres is not null)
     builder.Services
         .AddPlatformPersistence(requestConnection)
         .AddIdentityModule(requestConnection, signingKey, builder.Configuration)
-        .AddSampleModule(requestConnection);
+        .AddSampleModule(requestConnection)
+        // Tenancy takes the request connection for its scoped context; its
+        // provisioner and membership directory additionally inject the already-
+        // registered BypassDataSource singleton for their cross-tenant work. Its
+        // schema is migrated on the bypass connection with the others (its
+        // ModuleSchema descriptor is picked up by the bootstrap block below), so
+        // the request role gets its grants and RLS binds it.
+        .AddTenancyModule(requestConnection);
 
     // DataProtection persists its key ring to the platform context (keys
     // survive restarts and are shared across replicas). Needs the platform
@@ -370,6 +395,7 @@ app.MapHealthChecks("/readyz", new HealthCheckOptions { Predicate = registration
 if (postgres is not null)
 {
     app.MapIdentityEndpoints();
+    app.MapTenancyEndpoints();
 
     ApiVersionSet versionSet = app.NewApiVersionSet()
         .HasApiVersion(new ApiVersion(1))

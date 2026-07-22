@@ -55,6 +55,31 @@ public class AccessTokenIssuerTests
     }
 
     [Fact]
+    public void Issue_WithoutTenant_OmitsTid()
+    {
+        // A tenant-less session (login) carries no tid, so tenant resolution
+        // falls back to another source.
+        var token = Issue();
+
+        token.Claims.ShouldNotContain(claim => claim.Type == StarterClaims.Tid);
+    }
+
+    [Fact]
+    public void Issue_WithTenant_CarriesTid()
+    {
+        var tenantId = Guid.Parse("019807e0-0000-7000-8000-0000000000aa");
+
+        var token = new JsonWebToken(
+            new AccessTokenIssuer(Key).Issue(UserId, SessionId, tokenVersion: 3, Now, tenantId));
+
+        token.GetClaim(StarterClaims.Tid).Value.ShouldBe(tenantId.ToString());
+        // The other claims are unchanged: tid is additive.
+        token.Subject.ShouldBe(UserId.ToString());
+        token.GetClaim(StarterClaims.Sid).Value.ShouldBe(SessionId.ToString());
+        token.GetClaim(StarterClaims.Ver).Value.ShouldBe("3");
+    }
+
+    [Fact]
     public void Issue_CarriesNoRoleClaims()
     {
         // Roles are scoped per-entity, resolved per-request - never baked

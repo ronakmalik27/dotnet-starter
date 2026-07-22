@@ -55,6 +55,21 @@ public static class ProblemTypes
     /// </summary>
     public const string TenantRequired = "starter:tenant-required";
 
+    /// <summary>
+    /// 409: self-serve signup asked for a tenant slug that is already taken. A
+    /// slug is caller-supplied and not a secret, so confirming it is taken is
+    /// fine (unlike the enumeration-safe email path).
+    /// </summary>
+    public const string TenantSlugTaken = "starter:tenant-slug-taken";
+
+    /// <summary>
+    /// 404: the caller is not an active member of the named tenant (or the
+    /// tenant does not exist - the two collapse to one answer). Deliberately 404
+    /// not 403, so a non-member cannot confirm the tenant exists (the same
+    /// cross-tenant 404 posture the isolation boundary takes).
+    /// </summary>
+    public const string TenantMembershipNotFound = "starter:tenant-membership-not-found";
+
     /// <summary>405: the HTTP method is not supported on this route.</summary>
     public const string MethodNotAllowed = "starter:method-not-allowed";
 
