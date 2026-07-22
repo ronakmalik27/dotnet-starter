@@ -710,7 +710,8 @@ rewrite:
 - **MFA / TOTP**: an Identity add-on on the sign-in path; no tenancy change.
 - **Billing (plans, subscriptions, seats, metering) and entitlements**: `plan`
   and `seat_limit` already exist on the tenant; entitlements gate the permission
-  catalogue (section 15) and features per plan.
+  catalogue (section 15) and features per plan. DESIGNED and being built out -
+  see [billing-and-entitlements.md](billing-and-entitlements.md).
 - **A first-class, queryable audit log**: distinct from `domain_events`; a
   projection built by a consumer off the outbox (the impersonation grant is the
   first audited action). DESIGNED and being built out - see

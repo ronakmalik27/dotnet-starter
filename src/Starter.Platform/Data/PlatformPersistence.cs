@@ -28,6 +28,12 @@ public static class PlatformPersistence
         // plane on the bypass path). Stateless apart from the clock, so singleton.
         services.AddSingleton<IPlatformAuditWriter, PlatformAuditWriter>();
 
+        // The entitlement source (billing-and-entitlements.md section 3): resolves
+        // a plan key to its entitlements by reading the no-RLS platform.plans
+        // catalogue through the request-scoped PlatformDbContext. Request-scoped
+        // like the context it reads, and never touches the bypass data source.
+        services.AddScoped<Auth.IEntitlementSource, EntitlementSource>();
+
         // The tenant-admin audit read (RLS-bound, request-scoped) and the
         // super-admin audit read (bypass, cross-tenant).
         services.AddScoped<IAuditQuery, AuditQuery>();

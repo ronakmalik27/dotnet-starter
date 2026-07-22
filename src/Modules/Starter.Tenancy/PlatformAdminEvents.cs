@@ -57,6 +57,47 @@ internal static class PlatformAdminEvents
         };
 
     /// <summary>
+    /// platform.plan.created: a super-admin created a plan-catalogue entry
+    /// (billing-and-entitlements.md sections 6, 7). A null-tenant operator action,
+    /// audited SYNCHRONOUSLY through the platform audit writer in the same
+    /// transaction as the catalogue write - never by the async tenant projection.
+    /// The plan has no Guid identity (its key is the pk), so the entity id is empty
+    /// and the key rides the payload (a scalar, no PII).
+    /// </summary>
+    public static DomainEventRecord PlanCreated(
+        string planKey,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.plan.created",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { planKey }, Json),
+        };
+
+    /// <summary>
+    /// platform.plan.updated: a super-admin edited a plan-catalogue entry (name,
+    /// features, permissions, limits, or default). Same null-tenant, synchronously
+    /// audited shape as <see cref="PlanCreated"/>.
+    /// </summary>
+    public static DomainEventRecord PlanUpdated(
+        string planKey,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.plan.updated",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { planKey }, Json),
+        };
+
+    /// <summary>
     /// platform.impersonation.started: an admin started an impersonation session.
     /// Written in the SAME transaction as the grant row, so no impersonation
     /// token exists without this audit record. Actor is the acting admin; the

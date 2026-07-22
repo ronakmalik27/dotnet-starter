@@ -241,6 +241,30 @@ public static class ProblemTypes
     /// </summary>
     public const string TenantStateConflict = "starter:tenant-state-conflict";
 
+    /// <summary>
+    /// 402: the caller's plan does not include a gated feature (the
+    /// RequireEntitlement gate) or a permission requested in a custom role is not
+    /// in the plan's grantable catalogue (billing-and-entitlements.md sections 4,
+    /// 4a). This is a COMMERCIAL gate, not a security one: it fires only when an
+    /// operator has deliberately put the tenant on a plan that restricts the
+    /// feature or permission, and the fix is a plan upgrade, not a grant.
+    /// </summary>
+    public const string PaymentRequired = "starter:payment-required";
+
+    /// <summary>
+    /// 409: creating a plan asked for a key that already exists in the catalogue
+    /// (billing-and-entitlements.md section 7). A plan key is operator-chosen and
+    /// not a secret, so a definite answer is fine (the plans pk is the backstop).
+    /// </summary>
+    public const string PlatformPlanKeyTaken = "starter:platform-plan-key-taken";
+
+    /// <summary>
+    /// 409: a plan write raced another operator promoting a different plan to
+    /// default, so the exactly-one-default partial unique index rejected it
+    /// (billing-and-entitlements.md section 2). Retry: one default now stands.
+    /// </summary>
+    public const string PlatformPlanDefaultConflict = "starter:platform-plan-default-conflict";
+
     /// <summary>405: the HTTP method is not supported on this route.</summary>
     public const string MethodNotAllowed = "starter:method-not-allowed";
 

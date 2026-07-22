@@ -25,6 +25,7 @@ internal sealed class TenantAdminService(
     TenancyDbContext db,
     ITenantContext tenant,
     OutboxWriter outbox,
+    IEntitlementSource entitlements,
     Clock clock,
     InvitationEmailComposer invitationEmail,
     IUserDirectory users,
@@ -447,19 +448,45 @@ internal sealed class TenantAdminService(
 
     // --- Seats ------------------------------------------------------------
 
-    public async Task<(int SeatLimit, int ActiveMembers)> GetSeatsAsync(CancellationToken cancellationToken)
+    public async Task<(int SeatLimit, int ActiveMembers, string? Plan, IReadOnlyDictionary<string, int> Limits)>
+        GetSeatsAsync(CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var seatLimit = await db.Tenants
+        var row = await db.Tenants
             .AsNoTracking()
-            .Select(tenantRow => (int?)tenantRow.SeatLimit)
-            .SingleOrDefaultAsync(cancellationToken) ?? 0;
+            .Select(tenantRow => new { tenantRow.SeatLimit, tenantRow.Plan })
+            .SingleOrDefaultAsync(cancellationToken);
         var activeMembers = await db.Memberships
             .AsNoTracking()
             .CountAsync(membership => membership.Status == MembershipStatus.Active, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return (seatLimit, activeMembers);
+        // The seats view reports the plan-derived seat limit plus the tenant's plan
+        // and its declared numeric limits (billing-and-entitlements.md sections 5,
+        // 7). Entitlements resolve off the no-RLS plan catalogue, so this read
+        // happens after the tenant transaction commits.
+        var planKey = row?.Plan;
+        var resolved = await entitlements.ResolveAsync(planKey, cancellationToken);
+        return (row?.SeatLimit ?? 0, activeMembers, planKey, resolved.Limits);
+    }
+
+    /// <summary>
+    /// The caller's full entitlement picture (billing-and-entitlements.md section
+    /// 3): reads the ACTIVE tenant's plan under RLS (the GetSeatsAsync pattern - an
+    /// explicit read transaction so the tenant GUC is set), then resolves it via
+    /// <see cref="IEntitlementSource"/>. A null / unknown plan resolves to
+    /// unrestricted (fail open).
+    /// </summary>
+    public async Task<Entitlements> GetCallerEntitlementsAsync(CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var planKey = await db.Tenants
+            .AsNoTracking()
+            .Select(tenantRow => tenantRow.Plan)
+            .SingleOrDefaultAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return await entitlements.ResolveAsync(planKey, cancellationToken);
     }
 
     /// <summary>

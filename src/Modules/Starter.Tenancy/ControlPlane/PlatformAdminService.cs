@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
@@ -45,6 +46,9 @@ internal sealed class PlatformAdminService(
 
     private static readonly Error TargetUserNotFound = new(
         ErrorKind.NotFound, "platform.user_not_found", "No such active user.");
+
+    private static readonly Error PlanNotFound = new(
+        ErrorKind.NotFound, "platform.plan_not_found", "No such plan.");
 
     // --- Tenants (cross-tenant reads on the bypass path) ------------------
 
@@ -170,6 +174,234 @@ internal sealed class PlatformAdminService(
         await db.SaveChangesAsync(cancellationToken);
         await outbox.EnqueueAsync(
             db, TenancyEvents.TenantSoftDeleted(tenantId, actorUserId, now), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    // --- Plans (operator catalogue on platform.plans, bypass-path) --------
+    // The plan catalogue is a no-RLS platform table (billing-and-entitlements.md
+    // section 2). CRUD is raw SQL on the bypass connection (the platform_admins
+    // shape), so the nullable features/permissions arrays are written as SQL NULL
+    // (unrestricted), never as {} (which would strip everything). A create/update
+    // is audited SYNCHRONOUSLY through the platform audit writer in the same
+    // transaction as the catalogue write, exactly like a super-admin grant.
+
+    public async Task<IReadOnlyList<(string Key, string Name, IReadOnlyList<string>? Features, IReadOnlyList<string>? Permissions, IReadOnlyDictionary<string, int> Limits, bool IsDefault, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListPlansAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select key, name, features, permissions, limits, is_default, created_at, updated_at "
+            + "from platform.plans order by created_at, key",
+            connection);
+
+        var plans =
+            new List<(string, string, IReadOnlyList<string>?, IReadOnlyList<string>?, IReadOnlyDictionary<string, int>, bool, DateTimeOffset, DateTimeOffset)>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var features = await reader.IsDBNullAsync(2, cancellationToken)
+                ? null
+                : (IReadOnlyList<string>)reader.GetFieldValue<string[]>(2);
+            var permissions = await reader.IsDBNullAsync(3, cancellationToken)
+                ? null
+                : (IReadOnlyList<string>)reader.GetFieldValue<string[]>(3);
+            plans.Add((
+                reader.GetString(0),
+                reader.GetString(1),
+                features,
+                permissions,
+                ParseLimits(reader.GetFieldValue<string>(4)),
+                reader.GetBoolean(5),
+                reader.GetFieldValue<DateTimeOffset>(6),
+                reader.GetFieldValue<DateTimeOffset>(7)));
+        }
+
+        return plans;
+    }
+
+    public async Task<Result> CreatePlanAsync(
+        Guid actorUserId,
+        string key,
+        string name,
+        IReadOnlyList<string>? features,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyDictionary<string, int>? limits,
+        bool isDefault,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(name);
+
+        key = key.Trim();
+        name = name.Trim();
+        if (ValidatePlanShape(key, name, limits) is { } validation)
+        {
+            return Result.Failure(validation);
+        }
+
+        var now = clock.UtcNow;
+        var limitsJson = JsonSerializer.Serialize(limits);
+
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        // A new default demotes the current one first, so the exactly-one-default
+        // partial unique index never sees a torn state in a sequential write.
+        if (isDefault)
+        {
+            await DemoteDefaultsAsync(connection, dbTransaction, exceptKey: key, now, cancellationToken);
+        }
+
+        try
+        {
+            await using var insert = new NpgsqlCommand(
+                "insert into platform.plans "
+                + "(key, name, features, permissions, limits, is_default, created_at, updated_at) "
+                + "values (@key, @name, @features, @permissions, @limits, @default, @now, @now)",
+                connection,
+                dbTransaction);
+            insert.Parameters.AddWithValue("key", key);
+            insert.Parameters.AddWithValue("name", name);
+            AddArrayParameter(insert, "features", features);
+            AddArrayParameter(insert, "permissions", permissions);
+            insert.Parameters.Add(new NpgsqlParameter("limits", NpgsqlDbType.Jsonb) { Value = limitsJson });
+            insert.Parameters.AddWithValue("default", isDefault);
+            insert.Parameters.AddWithValue("now", now);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return DefaultOrKeyConflict(exception);
+        }
+
+        var created = PlatformAdminEvents.PlanCreated(key, actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, created, subjectUserId: null, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    public async Task<Result> UpdatePlanAsync(
+        Guid actorUserId,
+        string key,
+        string? name,
+        IReadOnlyList<string>? features,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyDictionary<string, int>? limits,
+        bool? isDefault,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key = key.Trim();
+        name = name?.Trim();
+
+        if (name is { Length: 0 })
+        {
+            return Result.Failure(new Error(
+                ErrorKind.Validation, "platform.plan_name_required", "A plan name cannot be empty."));
+        }
+
+        if (limits is not null && !HasPositiveSeatLimit(limits))
+        {
+            return Result.Failure(SeatLimitRequired);
+        }
+
+        var now = clock.UtcNow;
+
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        // Lock the row (FOR UPDATE) and rewrite it whole, so a null field means
+        // "unchanged" (keep the existing value) rather than "set null". This is the
+        // simplest correct handling of the features/permissions tri-state on a
+        // PATCH: a provided array replaces, an absent one is preserved.
+        var existing = await ReadPlanForUpdateAsync(connection, dbTransaction, key, cancellationToken);
+        if (existing is null)
+        {
+            return Result.Failure(PlanNotFound);
+        }
+
+        var newIsDefault = isDefault ?? existing.Value.IsDefault;
+        if (newIsDefault)
+        {
+            await DemoteDefaultsAsync(connection, dbTransaction, exceptKey: key, now, cancellationToken);
+        }
+
+        try
+        {
+            await using var update = new NpgsqlCommand(
+                "update platform.plans set "
+                + "name = @name, features = @features, permissions = @permissions, "
+                + "limits = @limits, is_default = @default, updated_at = @now where key = @key",
+                connection,
+                dbTransaction);
+            update.Parameters.AddWithValue("key", key);
+            update.Parameters.AddWithValue("name", name ?? existing.Value.Name);
+            AddArrayParameter(update, "features", features ?? existing.Value.Features);
+            AddArrayParameter(update, "permissions", permissions ?? existing.Value.Permissions);
+            var limitsJson = limits is null ? existing.Value.Limits : JsonSerializer.Serialize(limits);
+            update.Parameters.Add(new NpgsqlParameter("limits", NpgsqlDbType.Jsonb) { Value = limitsJson });
+            update.Parameters.AddWithValue("default", newIsDefault);
+            update.Parameters.AddWithValue("now", now);
+            await update.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return DefaultOrKeyConflict(exception);
+        }
+
+        var updated = PlatformAdminEvents.PlanUpdated(key, actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, updated, subjectUserId: null, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    public async Task<Result> AssignPlanAsync(
+        Guid actorUserId, Guid tenantId, string planKey, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(planKey);
+        planKey = planKey.Trim();
+        if (planKey.Length == 0)
+        {
+            return Result.Failure(new Error(
+                ErrorKind.Validation, "platform.plan_required", "A plan key is required."));
+        }
+
+        var now = clock.UtcNow;
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+
+        // The plan must exist (a 404 otherwise), so a tenant is never assigned a
+        // dangling plan key. Its seatLimit is denormalized onto the tenant row so
+        // the race-proof seat check in invitation-accept stays unchanged.
+        var seatLimit = await ReadPlanSeatLimitAsync(connection, planKey, cancellationToken);
+        if (seatLimit is null)
+        {
+            return Result.Failure(PlanNotFound);
+        }
+
+        // Bind the context to the target tenant (the ChangeTenantStatusAsync
+        // structure): one transaction, the EF write of plan + seat_limit, the
+        // plan-changed event enqueue, commit.
+        await using var db = OpenContext(connection, ITenantContext.ForTenant(tenantId));
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var tenant = await db.Tenants.SingleOrDefaultAsync(cancellationToken);
+        if (tenant is null)
+        {
+            return Result.Failure(TenantNotFound);
+        }
+
+        var oldPlan = tenant.Plan;
+        tenant.Plan = planKey;
+        tenant.SeatLimit = seatLimit.Value;
+        await db.SaveChangesAsync(cancellationToken);
+        await outbox.EnqueueAsync(
+            db, TenancyEvents.TenantPlanChanged(tenantId, oldPlan, planKey, actorUserId, now), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return Result.Success();
@@ -524,4 +756,140 @@ internal sealed class PlatformAdminService(
         var options = StarterDbContextOptions.ForConnection<TenancyDbContext>(connection).Options;
         return new TenancyDbContext(options, tenantContext);
     }
+
+    // --- Plan helpers -----------------------------------------------------
+
+    private static readonly Error SeatLimitRequired = new(
+        ErrorKind.Validation,
+        "platform.plan_seat_limit_required",
+        "A plan must declare a positive seatLimit in its limits (tenant.seat_limit is not null).");
+
+    private static Error? ValidatePlanShape(
+        string key, string name, IReadOnlyDictionary<string, int>? limits)
+    {
+        if (key.Length == 0 || key.Length > 64)
+        {
+            return new Error(
+                ErrorKind.Validation, "platform.plan_key_invalid", "A plan key must be 1-64 characters.");
+        }
+
+        if (name.Length == 0)
+        {
+            return new Error(
+                ErrorKind.Validation, "platform.plan_name_required", "A plan name is required.");
+        }
+
+        // seatLimit is REQUIRED and must be positive: tenant.seat_limit is NOT NULL,
+        // so assign-plan can never land a null or zero limit that would silently
+        // block every future invitation (billing-and-entitlements.md section 5).
+        return HasPositiveSeatLimit(limits) ? null : SeatLimitRequired;
+    }
+
+    private static bool HasPositiveSeatLimit(IReadOnlyDictionary<string, int>? limits) =>
+        limits is not null && limits.TryGetValue("seatLimit", out var seatLimit) && seatLimit > 0;
+
+    private static void AddArrayParameter(NpgsqlCommand command, string name, IReadOnlyList<string>? values)
+    {
+        // A null list is SQL NULL (unrestricted); a non-null list is a text[]
+        // (closed to exactly that set). Explicitly typed so a null binds as a
+        // text[] NULL rather than relying on Npgsql to infer an untyped null.
+        command.Parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = values is null ? DBNull.Value : values.ToArray(),
+        });
+    }
+
+    private static Result DefaultOrKeyConflict(PostgresException exception) =>
+        exception.ConstraintName == "ux_plans_is_default"
+            ? Result.Failure(new Error(
+                ErrorKind.Conflict,
+                "platform.plan_default_conflict",
+                "Another plan is already the default; retry."))
+            : Result.Failure(new Error(
+                ErrorKind.Conflict,
+                "platform.plan_key_taken",
+                "A plan with that key already exists."));
+
+    private static async Task DemoteDefaultsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string exceptKey,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "update platform.plans set is_default = false, updated_at = @now "
+            + "where is_default and key <> @key",
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("key", exceptKey);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<PlanRowValues?> ReadPlanForUpdateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select name, features, permissions, limits, is_default from platform.plans "
+            + "where key = @key for update",
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("key", key);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var features = await reader.IsDBNullAsync(1, cancellationToken)
+            ? null
+            : reader.GetFieldValue<string[]>(1);
+        var permissions = await reader.IsDBNullAsync(2, cancellationToken)
+            ? null
+            : reader.GetFieldValue<string[]>(2);
+        return new PlanRowValues(
+            reader.GetString(0), features, permissions, reader.GetFieldValue<string>(3), reader.GetBoolean(4));
+    }
+
+    private static async Task<int?> ReadPlanSeatLimitAsync(
+        NpgsqlConnection connection, string planKey, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select limits from platform.plans where key = @key limit 1", connection);
+        command.Parameters.AddWithValue("key", planKey);
+        var limits = await command.ExecuteScalarAsync(cancellationToken) as string;
+        if (limits is null)
+        {
+            return null;
+        }
+
+        var parsed = ParseLimits(limits);
+        return parsed.TryGetValue("seatLimit", out var seatLimit) && seatLimit > 0 ? seatLimit : null;
+    }
+
+    private static Dictionary<string, int> ParseLimits(string limits)
+    {
+        if (string.IsNullOrWhiteSpace(limits))
+        {
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, int>>(limits)
+                ?? new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+    }
+
+    private readonly record struct PlanRowValues(
+        string Name, string[]? Features, string[]? Permissions, string Limits, bool IsDefault);
 }

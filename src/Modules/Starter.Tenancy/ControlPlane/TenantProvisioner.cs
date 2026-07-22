@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -42,11 +43,13 @@ internal sealed class TenantProvisioner(
     Clock clock,
     ILogger<TenantProvisioner> logger)
 {
-    // A sensible free-tier default: a self-serve tenant starts small and raises
-    // its seat limit on a paid plan (out of scope this increment).
-    private const int DefaultSeatLimit = 5;
+    // The fallback default plan when no is_default row exists in platform.plans
+    // (billing-and-entitlements.md section 2): a self-serve tenant starts small.
+    // The migration seeds a `free` default, so this fallback only fires if the
+    // catalogue was emptied out of band.
+    private const int FallbackSeatLimit = 5;
 
-    private const string DefaultPlan = "free";
+    private const string FallbackPlan = "free";
 
     public async Task<Result<SelfServeSignup>> ProvisionAsync(
         string email,
@@ -89,6 +92,14 @@ internal sealed class TenantProvisioner(
         // commit or roll back together.
         await using (var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken))
         {
+            // The is_default plan drives provisioning (billing-and-entitlements.md
+            // section 2): a new tenant lands on whatever plan the operator marked
+            // default, with that plan's seatLimit. Read it on the bypass connection
+            // (platform.plans is off the request role's reach) before opening the
+            // provisioning transaction; a plain SELECT auto-commits. Falls back to
+            // free / 5 only if no default row exists (an emptied catalogue).
+            var (defaultPlan, defaultSeatLimit) = await ReadDefaultPlanAsync(connection, cancellationToken);
+
             var options = StarterDbContextOptions.ForConnection<TenancyDbContext>(connection).Options;
 
             // Resolve the provisioning context to the NEW tenant, so OutboxWriter
@@ -127,8 +138,8 @@ internal sealed class TenantProvisioner(
                 Slug = slug,
                 Name = tenantName,
                 Status = TenantStatus.Active,
-                Plan = DefaultPlan,
-                SeatLimit = DefaultSeatLimit,
+                Plan = defaultPlan,
+                SeatLimit = defaultSeatLimit,
                 CreatedAt = now,
                 CreatedBy = newUserId,
             });
@@ -199,4 +210,58 @@ internal sealed class TenantProvisioner(
 
     private static bool IsUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
+
+    /// <summary>
+    /// Reads the is_default plan's key and seatLimit from platform.plans on the
+    /// bypass connection (billing-and-entitlements.md section 2). Falls back to
+    /// <see cref="FallbackPlan"/> / <see cref="FallbackSeatLimit"/> when no default
+    /// row exists or its limits omit a positive seatLimit, so provisioning always
+    /// lands a usable seat limit.
+    /// </summary>
+    private static async Task<(string Plan, int SeatLimit)> ReadDefaultPlanAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select key, limits from platform.plans where is_default limit 1", connection);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return (FallbackPlan, FallbackSeatLimit);
+        }
+
+        var key = reader.GetString(0);
+        var limits = reader.GetFieldValue<string>(1);
+        var seatLimit = ReadSeatLimit(limits) ?? FallbackSeatLimit;
+        return (key, seatLimit);
+    }
+
+    private static int? ReadSeatLimit(string limits)
+    {
+        if (string.IsNullOrWhiteSpace(limits))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(limits);
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("seatLimit", out var seatLimit)
+                && seatLimit.ValueKind == JsonValueKind.Number
+                && seatLimit.TryGetInt32(out var value)
+                && value > 0)
+            {
+                return value;
+            }
+        }
+        catch (JsonException)
+        {
+            // A malformed limits blob (should never happen; create/update validate
+            // it) falls back to the default seat limit rather than throwing at
+            // signup.
+        }
+
+        return null;
+    }
 }

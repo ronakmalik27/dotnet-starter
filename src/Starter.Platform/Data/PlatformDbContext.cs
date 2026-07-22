@@ -108,6 +108,31 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.Property(e => e.GrantedAt).HasDefaultValueSql("now()");
         });
 
+        modelBuilder.Entity<PlanRow>(entity =>
+        {
+            // The operator-owned plan catalogue (billing-and-entitlements.md
+            // section 2). No RLS (a global platform table, like platform_admins),
+            // so NO ApplyTenantFilter: the request path reads it for entitlement
+            // resolution, the super-admin path edits it on the bypass source. pk is
+            // the plan key (the value stored in tenant.plan). features/permissions
+            // are NULLABLE text[] (SQL NULL = unrestricted; a non-null array is
+            // closed to exactly that set); limits is jsonb.
+            entity.ToTable("plans");
+            entity.HasKey(e => e.Key);
+            entity.Property(e => e.Key).ValueGeneratedNever();
+            entity.Property(e => e.Name).HasColumnType("text");
+            entity.Property(e => e.Features).HasColumnType("text[]");
+            entity.Property(e => e.Permissions).HasColumnType("text[]");
+            entity.Property(e => e.Limits).HasColumnType("jsonb");
+            // Exactly one default plan: a partial unique index on is_default WHERE
+            // is_default makes a torn two-default state impossible even under a
+            // concurrent double-promote (app discipline alone could not).
+            entity.HasIndex(e => e.IsDefault)
+                .IsUnique()
+                .HasFilter("is_default")
+                .HasDatabaseName("ux_plans_is_default");
+        });
+
         modelBuilder.Entity<ImpersonationGrantRow>(entity =>
         {
             // The impersonation audit spine. No RLS; written and read only on
@@ -204,6 +229,9 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             ApplyTenantFilter(entity);
         });
     }
+
+    /// <summary>The operator-owned plan catalogue (no RLS; read on the request path, edited on the bypass path).</summary>
+    internal DbSet<PlanRow> Plans => Set<PlanRow>();
 
     /// <summary>The cross-tenant operators (mapping only; the runtime uses raw bypass SQL).</summary>
     internal DbSet<PlatformAdminRow> PlatformAdmins => Set<PlatformAdminRow>();

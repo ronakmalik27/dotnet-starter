@@ -31,13 +31,27 @@ public static class WebhookEndpoints
             .RequireTenant()
             .RequireAuthorization();
 
-        webhooks.MapPost("/", RegisterAsync).RequirePermission(Permissions.WebhooksManage);
-        webhooks.MapGet("/", ListAsync).RequirePermission(Permissions.WebhooksManage);
-        webhooks.MapPatch("/{id:guid}", UpdateAsync).RequirePermission(Permissions.WebhooksManage);
-        webhooks.MapPost("/{id:guid}/rotate-secret", RotateSecretAsync).RequirePermission(Permissions.WebhooksManage);
-        webhooks.MapDelete("/{id:guid}", DeleteAsync).RequirePermission(Permissions.WebhooksManage);
-        webhooks.MapGet("/{id:guid}/deliveries", ListDeliveriesAsync).RequirePermission(Permissions.WebhooksManage);
-        webhooks.MapPost("/deliveries/{id:guid}/replay", ReplayAsync).RequirePermission(Permissions.WebhooksManage);
+        // Webhooks is a canonical paid-tier feature (billing-and-entitlements.md
+        // section 4): each route composes RequireEntitlement("webhooks") AFTER
+        // RequirePermission, so a caller lacking the permission gets a 403 (and
+        // never learns the feature is paywalled), while a caller on a plan that
+        // omits the feature gets a 402. Existing tenants are on the seeded free plan
+        // (features NULL = unrestricted), so this changes nothing for them.
+        const string WebhooksFeature = "webhooks";
+        webhooks.MapPost("/", RegisterAsync)
+            .RequirePermission(Permissions.WebhooksManage).RequireEntitlement(WebhooksFeature);
+        webhooks.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.WebhooksManage).RequireEntitlement(WebhooksFeature);
+        webhooks.MapPatch("/{id:guid}", UpdateAsync)
+            .RequirePermission(Permissions.WebhooksManage).RequireEntitlement(WebhooksFeature);
+        webhooks.MapPost("/{id:guid}/rotate-secret", RotateSecretAsync)
+            .RequirePermission(Permissions.WebhooksManage).RequireEntitlement(WebhooksFeature);
+        webhooks.MapDelete("/{id:guid}", DeleteAsync)
+            .RequirePermission(Permissions.WebhooksManage).RequireEntitlement(WebhooksFeature);
+        webhooks.MapGet("/{id:guid}/deliveries", ListDeliveriesAsync)
+            .RequirePermission(Permissions.WebhooksManage).RequireEntitlement(WebhooksFeature);
+        webhooks.MapPost("/deliveries/{id:guid}/replay", ReplayAsync)
+            .RequirePermission(Permissions.WebhooksManage).RequireEntitlement(WebhooksFeature);
 
         return app;
     }

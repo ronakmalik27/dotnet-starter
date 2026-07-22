@@ -33,10 +33,20 @@ internal sealed class Tenant : ITenantOwned
     /// <summary>One of active | suspended | deleted (stored as a string).</summary>
     public required string Status { get; set; }
 
-    /// <summary>The billing plan, e.g. "free". Nullable.</summary>
-    public string? Plan { get; init; }
+    /// <summary>
+    /// The billing plan, e.g. "free". Nullable. Settable (like <see cref="Status"/>)
+    /// so the super-admin assign-plan path can move a tenant between plans
+    /// (billing-and-entitlements.md section 7).
+    /// </summary>
+    public string? Plan { get; set; }
 
-    public required int SeatLimit { get; init; }
+    /// <summary>
+    /// The seat limit, denormalized from the assigned plan's <c>seatLimit</c>
+    /// (billing-and-entitlements.md section 5). Settable so assign-plan keeps it in
+    /// sync with the plan; the race-proof seat check in invitation-accept keeps
+    /// reading it off the locked tenant row unchanged.
+    /// </summary>
+    public int SeatLimit { get; set; }
 
     public required DateTimeOffset CreatedAt { get; init; }
 

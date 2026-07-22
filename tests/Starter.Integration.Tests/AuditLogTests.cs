@@ -38,6 +38,11 @@ public sealed class AuditLogTests(StarterAppFixture fixture)
         "identity.session.revoked",
         "platform.admin.granted",
         "platform.admin.revoked",
+        // Plan-catalogue edits are null-tenant operator actions audited
+        // synchronously on platform.platform_audit_log (billing-and-entitlements.md
+        // section 6), not by the async tenant projection.
+        "platform.plan.created",
+        "platform.plan.updated",
     };
 
     // Hoisted so the repeated helper argument is not a constant array literal (CA1861).

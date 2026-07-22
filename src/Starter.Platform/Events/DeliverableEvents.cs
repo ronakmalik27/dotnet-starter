@@ -28,6 +28,7 @@ internal static class DeliverableEvents
         "tenancy.tenant.soft_deleted",
         "tenancy.tenant.suspended",
         "tenancy.tenant.reactivated",
+        "tenancy.tenant.plan_changed",
         "tenancy.workspace.created",
         "tenancy.workspace.renamed",
         "tenancy.workspace.archived",

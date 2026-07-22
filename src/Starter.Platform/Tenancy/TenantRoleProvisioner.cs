@@ -142,7 +142,14 @@ public sealed class TenantRoleProvisioner
             await ExecuteAsync(
                 connection,
                 $"revoke update, delete on platform.audit_log from {RequestRole};"
-                + $"revoke all on platform.platform_audit_log from {RequestRole};",
+                + $"revoke all on platform.platform_audit_log from {RequestRole};"
+                // The plan catalogue is operator-managed (billing-and-entitlements.md
+                // section 2): the request role may only READ it (entitlement
+                // resolution), never write it. Only the bypass role (the super-admin
+                // path) creates or edits plans, so a tenant can never edit the
+                // catalogue. REVOKE of an absent grant is a no-op, so this is
+                // idempotent and safe if the plans table has not been created yet.
+                + $"revoke insert, update, delete on platform.plans from {RequestRole};",
                 cancellationToken);
         }
     }

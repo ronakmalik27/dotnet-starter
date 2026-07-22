@@ -22,6 +22,10 @@ internal static class PlatformAdminProblems
             http, ProblemTypes.TenantStateConflict, "The tenant is not in a state that allows this.", error.Message),
         "platform.last_admin" => Conflict(
             http, ProblemTypes.PlatformLastAdmin, "The last platform admin cannot be revoked.", error.Message),
+        "platform.plan_key_taken" => Conflict(
+            http, ProblemTypes.PlatformPlanKeyTaken, "That plan key is already taken.", error.Message),
+        "platform.plan_default_conflict" => Conflict(
+            http, ProblemTypes.PlatformPlanDefaultConflict, "Another plan is already the default.", error.Message),
         _ => error.ToProblemResult(http),
     };
 

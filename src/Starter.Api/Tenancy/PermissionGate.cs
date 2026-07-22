@@ -57,6 +57,51 @@ public static class PermissionGate
             invocationContext => InvokeWorkspaceAsync(invocationContext, next, permission));
     }
 
+    /// <summary>
+    /// Declares the endpoint's required plan FEATURE (billing-and-entitlements.md
+    /// section 4): the caller's plan must include <paramref name="feature"/>, else
+    /// the request short-circuits with 402 starter:payment-required. Compose it
+    /// AFTER <see cref="RequirePermission"/> (permission-before-entitlement): a
+    /// caller not even authorized for the feature gets a 403 and never learns
+    /// whether the plan would have gated it (a 402 leaks that the feature exists
+    /// behind a paywall). Composes after RequireTenant, so a no-tenant request
+    /// answers 400 tenant-required first.
+    /// <para>
+    /// This is a COMMERCIAL gate, so it FAILS OPEN, unlike RequirePermission: an
+    /// unrestricted plan (the default) passes every feature, so the filter is a
+    /// no-op until an operator publishes a plan that restricts the feature.
+    /// </para>
+    /// </summary>
+    public static TBuilder RequireEntitlement<TBuilder>(this TBuilder builder, string feature)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(feature);
+
+        return builder.AddEndpointFilterFactory((_, next) =>
+            invocationContext => InvokeEntitlementAsync(invocationContext, next, feature));
+    }
+
+    private static async ValueTask<object?> InvokeEntitlementAsync(
+        EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next,
+        string feature)
+    {
+        var http = context.HttpContext;
+
+        // The entitlement is a property of the ACTIVE tenant's plan, not the caller,
+        // so this reads the tenant's plan (resolved from the tid claim) - no userId
+        // needed. RequireTenant (composed before) guarantees a resolved tenant.
+        var tenancy = http.RequestServices.GetRequiredService<ITenancyApi>();
+        var entitlements = await tenancy.GetCallerEntitlementsAsync(http.RequestAborted);
+        if (!entitlements.HasFeature(feature))
+        {
+            return TypedResults.Problem(StarterProblems.PaymentRequired(http));
+        }
+
+        return await next(context);
+    }
+
     private static async ValueTask<object?> InvokeAsync(
         EndpointFilterInvocationContext context,
         EndpointFilterDelegate next,

@@ -195,6 +195,25 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 402 for a caller whose plan does not include a gated feature (the
+    /// RequireEntitlement filter, billing-and-entitlements.md section 4). A
+    /// COMMERCIAL gate, not a security one: it fires only when an operator has put
+    /// the tenant on a plan that restricts the feature, and the answer names the
+    /// upgrade generically. A filter-produced block, so ErrorKind is untouched.
+    /// </summary>
+    public static ProblemDetails PaymentRequired(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status402PaymentRequired,
+            ProblemTypes.PaymentRequired,
+            "Your plan does not include this feature.",
+            "This feature requires a plan upgrade; your current plan does not include it.");
+    }
+
+    /// <summary>
     /// 403 for an authenticated caller who is not a platform super-admin hitting
     /// a platform control-plane endpoint (multi-tenancy.md section 7). Platform
     /// power is membership of platform.platform_admins, never a tenant role.

@@ -47,6 +47,16 @@ internal static class TenancyProblems
             ProblemTypes.PermissionNotAutomatable,
             "This role cannot be assigned to a service account.",
             error.Message),
+        // A permission the tenant's plan does not include cannot be added to a
+        // custom role (billing-and-entitlements.md section 4a): the commercial
+        // gate, so a 402 upgrade answer, not a 403/422 - the same slug the feature
+        // gate uses.
+        "tenancy.permission_not_in_plan" => Build(
+            http,
+            StatusCodes.Status402PaymentRequired,
+            ProblemTypes.PaymentRequired,
+            "Your plan does not include this permission.",
+            error.Message),
         _ => error.ToProblemResult(http),
     };
 

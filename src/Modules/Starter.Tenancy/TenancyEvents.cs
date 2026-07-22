@@ -214,6 +214,30 @@ internal static class TenancyEvents
         };
 
     /// <summary>
+    /// tenancy.tenant.plan_changed: a super-admin (or, later, a payment-provider
+    /// callback) assigned or changed the tenant's plan
+    /// (billing-and-entitlements.md section 6). Tenant-scoped (tenant_id = the
+    /// target), so it lands on the tenant's audit spine AND is webhook-deliverable.
+    /// Carries the old and new plan keys (scalars, no PII); oldPlan is null when the
+    /// tenant had no plan.
+    /// </summary>
+    public static DomainEventRecord TenantPlanChanged(
+        Guid tenantId,
+        string? oldPlan,
+        string newPlan,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.tenant.plan_changed",
+            EntityId = tenantId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { oldPlan, newPlan }, Json),
+        };
+
+    /// <summary>
     /// tenancy.workspace.created: a new workspace scope was created inside the
     /// tenant. Actor is the creator; the coarse slug rides the payload.
     /// </summary>

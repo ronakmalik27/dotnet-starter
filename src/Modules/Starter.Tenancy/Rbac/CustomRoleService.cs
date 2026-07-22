@@ -23,6 +23,7 @@ internal sealed class CustomRoleService(
     TenancyDbContext db,
     ITenantContext tenant,
     OutboxWriter outbox,
+    IEntitlementSource entitlements,
     Clock clock)
 {
     // --- Roles ------------------------------------------------------------
@@ -84,6 +85,17 @@ internal sealed class CustomRoleService(
 
         var now = clock.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        // The plan permission-catalogue gate (billing-and-entitlements.md section
+        // 4a): each requested permission must be grantable under the tenant's plan.
+        // Fail-open - the default NULL-permissions plan allows every non-owner-
+        // reserved permission, so existing custom-role authoring is unaffected; a
+        // plan an operator publishes with an explicit list bites. Checked inside the
+        // transaction so the RLS GUC is set for the tenant-plan read.
+        if (await ValidatePlanPermissionsAsync(distinctPermissions, cancellationToken) is { } planError)
+        {
+            return Result.Failure<Guid>(planError);
+        }
 
         // A workspace-local role must name a workspace that exists in this tenant
         // (RLS-scoped read). The endpoint's RequireWorkspace gate already checked
@@ -252,6 +264,15 @@ internal sealed class CustomRoleService(
         if (role is null)
         {
             return Result.Failure(RoleNotFound);
+        }
+
+        // The plan permission-catalogue gate (section 4a): a replacement permission
+        // set must sit within the tenant's plan. Only checked when the caller sends
+        // a permission set; fail-open on the default NULL-permissions plan.
+        if (distinctPermissions is not null
+            && await ValidatePlanPermissionsAsync(distinctPermissions, cancellationToken) is { } planError)
+        {
+            return Result.Failure(planError);
         }
 
         if (name is not null)
@@ -685,6 +706,45 @@ internal sealed class CustomRoleService(
             .Select(permission => permission.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>
+    /// The plan permission-catalogue gate (billing-and-entitlements.md section 4a):
+    /// each requested permission must be <c>AllowsPermission</c> under the active
+    /// tenant's plan, else the write is refused with an upgrade error
+    /// (<c>tenancy.permission_not_in_plan</c>). Fail-open: the tenant's plan is
+    /// resolved exactly as <c>GetCallerEntitlementsAsync</c> does (the plan key from
+    /// the tenant row plus <see cref="IEntitlementSource"/>), and the default
+    /// NULL-permissions plan (or an unknown / null plan) resolves to unrestricted,
+    /// so every non-owner-reserved permission stays grantable and no existing test
+    /// changes. MUST run inside the caller's open transaction so the RLS GUC is set
+    /// for the tenant-plan read.
+    /// </summary>
+    private async Task<Error?> ValidatePlanPermissionsAsync(
+        List<string> permissions, CancellationToken cancellationToken)
+    {
+        if (permissions.Count == 0)
+        {
+            return null;
+        }
+
+        var planKey = await db.Tenants
+            .AsNoTracking()
+            .Select(t => t.Plan)
+            .SingleOrDefaultAsync(cancellationToken);
+        var resolved = await entitlements.ResolveAsync(planKey, cancellationToken);
+        foreach (var permission in permissions)
+        {
+            if (!resolved.AllowsPermission(permission))
+            {
+                return new Error(
+                    ErrorKind.Validation,
+                    "tenancy.permission_not_in_plan",
+                    $"'{permission}' is not included in this tenant's plan.");
+            }
+        }
+
+        return null;
+    }
 
     private static Error? ValidatePermissions(IReadOnlyCollection<string> permissions)
     {

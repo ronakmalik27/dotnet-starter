@@ -41,6 +41,11 @@ public static class PlatformAdminEndpoints
         platform.MapPost("/tenants/{id:guid}/reactivate", ReactivateTenantAsync);
         platform.MapPost("/tenants/{id:guid}/delete", DeleteTenantAsync);
 
+        platform.MapGet("/plans", ListPlansAsync);
+        platform.MapPost("/plans", CreatePlanAsync);
+        platform.MapPatch("/plans/{key}", UpdatePlanAsync);
+        platform.MapPost("/tenants/{id:guid}/plan", AssignPlanAsync);
+
         platform.MapGet("/admins", ListAdminsAsync);
         platform.MapPost("/admins", GrantAdminAsync);
         platform.MapDelete("/admins/{userId:guid}", RevokeAdminAsync);
@@ -88,6 +93,104 @@ public static class PlatformAdminEndpoints
     private static Task<IResult> DeleteTenantAsync(
         Guid id, ITenancyApi tenancy, HttpContext http, CancellationToken cancellationToken) =>
         LifecycleAsync(http, (actor, ct) => tenancy.PlatformDeleteTenantAsync(actor, id, ct), cancellationToken);
+
+    private static async Task<IResult> ListPlansAsync(
+        ITenancyApi tenancy, CancellationToken cancellationToken)
+    {
+        var plans = await tenancy.ListPlansAsync(cancellationToken);
+        var items = plans
+            .Select(plan => new PlanResponse(
+                plan.Key, plan.Name, plan.Features, plan.Permissions, plan.Limits, plan.IsDefault, plan.CreatedAt, plan.UpdatedAt))
+            .ToList();
+        return Results.Ok(items);
+    }
+
+    private static async Task<IResult> CreatePlanAsync(
+        CreatePlanRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Key))
+        {
+            return Validation(http, "key", "A plan key is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return Validation(http, "name", "A plan name is required.");
+        }
+
+        var result = await tenancy.CreatePlanAsync(
+            actor.Value,
+            request.Key,
+            request.Name,
+            request.Features,
+            request.Permissions,
+            request.Limits,
+            request.IsDefault ?? false,
+            cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
+    private static async Task<IResult> UpdatePlanAsync(
+        string key,
+        UpdatePlanRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await tenancy.UpdatePlanAsync(
+            actor.Value,
+            key,
+            request.Name,
+            request.Features,
+            request.Permissions,
+            request.Limits,
+            request.IsDefault,
+            cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
+    private static async Task<IResult> AssignPlanAsync(
+        Guid id,
+        AssignPlanRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Plan))
+        {
+            return Validation(http, "plan", "A plan key is required.");
+        }
+
+        var result = await tenancy.AssignPlanAsync(actor.Value, id, request.Plan, cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
 
     private static async Task<IResult> ListAdminsAsync(
         ITenancyApi tenancy, CancellationToken cancellationToken)
@@ -223,6 +326,45 @@ public static class PlatformAdminEndpoints
 /// <summary>GET /api/v1/platform/tenants item and GET /api/v1/platform/tenants/{id} success.</summary>
 public sealed record TenantSummaryResponse(
     Guid Id, string Slug, string Name, string Status, string? Plan, int SeatLimit, DateTimeOffset CreatedAt);
+
+/// <summary>
+/// GET /api/v1/platform/plans item (billing-and-entitlements.md section 7).
+/// Null <paramref name="Features"/> / <paramref name="Permissions"/> means the
+/// plan restricts nothing (unrestricted).
+/// </summary>
+public sealed record PlanResponse(
+    string Key,
+    string Name,
+    IReadOnlyList<string>? Features,
+    IReadOnlyList<string>? Permissions,
+    IReadOnlyDictionary<string, int> Limits,
+    bool IsDefault,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>
+/// POST /api/v1/platform/plans body. Omit <paramref name="Features"/> /
+/// <paramref name="Permissions"/> (or send null) for unrestricted;
+/// <paramref name="Limits"/> MUST carry a positive seatLimit.
+/// </summary>
+public sealed record CreatePlanRequest(
+    string? Key,
+    string? Name,
+    IReadOnlyList<string>? Features,
+    IReadOnlyList<string>? Permissions,
+    IReadOnlyDictionary<string, int>? Limits,
+    bool? IsDefault);
+
+/// <summary>PATCH /api/v1/platform/plans/{key} body. A null field leaves that facet unchanged.</summary>
+public sealed record UpdatePlanRequest(
+    string? Name,
+    IReadOnlyList<string>? Features,
+    IReadOnlyList<string>? Permissions,
+    IReadOnlyDictionary<string, int>? Limits,
+    bool? IsDefault);
+
+/// <summary>POST /api/v1/platform/tenants/{id}/plan body: the plan key to assign.</summary>
+public sealed record AssignPlanRequest(string? Plan);
 
 /// <summary>GET /api/v1/platform/admins item.</summary>
 public sealed record PlatformAdminResponse(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt);

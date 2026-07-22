@@ -136,6 +136,62 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// </summary>
     Task<Result> EndImpersonationAsync(Guid actorUserId, Guid grantId, CancellationToken cancellationToken);
 
+    // --- Plan catalogue (operator-owned, bypass path) ---------------------
+    // The plan catalogue (billing-and-entitlements.md sections 2, 7) is global
+    // operator vocabulary, edited only on the bypass path behind
+    // RequirePlatformAdmin. features / permissions are null = unrestricted.
+
+    /// <summary>Lists the plan catalogue: key, name, features (null = unrestricted), permissions (null = unrestricted), limits, default flag, timestamps.</summary>
+    Task<IReadOnlyList<(string Key, string Name, IReadOnlyList<string>? Features, IReadOnlyList<string>? Permissions, IReadOnlyDictionary<string, int> Limits, bool IsDefault, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListPlansAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a plan-catalogue entry; audited synchronously on the platform audit
+    /// log. <paramref name="features"/> / <paramref name="permissions"/> null means
+    /// unrestricted (SQL NULL); <paramref name="limits"/> MUST declare a positive
+    /// seatLimit (Validation otherwise). A duplicate key is a Conflict. When
+    /// <paramref name="isDefault"/> is true the current default is demoted in the
+    /// same transaction (exactly-one-default).
+    /// </summary>
+    Task<Result> CreatePlanAsync(
+        Guid actorUserId,
+        string key,
+        string name,
+        IReadOnlyList<string>? features,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyDictionary<string, int>? limits,
+        bool isDefault,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Updates a plan-catalogue entry (PATCH semantics: a null argument leaves that
+    /// facet unchanged; a supplied array replaces). A supplied
+    /// <paramref name="limits"/> must still declare a positive seatLimit. Promoting
+    /// <paramref name="isDefault"/> to true demotes the current default in one
+    /// transaction. An unknown key is a NotFound. Audited synchronously.
+    /// </summary>
+    Task<Result> UpdatePlanAsync(
+        Guid actorUserId,
+        string key,
+        string? name,
+        IReadOnlyList<string>? features,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyDictionary<string, int>? limits,
+        bool? isDefault,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Assigns a plan to a tenant (billing-and-entitlements.md section 7): sets
+    /// <c>tenant.plan</c> and denormalizes the plan's seatLimit onto
+    /// <c>tenant.seat_limit</c>, emitting tenancy.tenant.plan_changed with the old
+    /// and new keys. The plan must exist (a NotFound otherwise), so a tenant is
+    /// never assigned a dangling key; a missing tenant is a NotFound. This is the
+    /// single seam a payment-provider callback drives after a real payment
+    /// (section 9).
+    /// </summary>
+    Task<Result> AssignPlanAsync(
+        Guid actorUserId, Guid tenantId, string planKey, CancellationToken cancellationToken);
+
     // --- Tenant-admin control plane (active tenant, request path under RLS) ---
     // Every command below operates on the ACTIVE tenant resolved from the tid
     // claim; the endpoint gates each with RequireTenant + RequireTenantRole
@@ -203,8 +259,23 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// <summary>Soft-deletes the active tenant (owner-only): status -> deleted, never a hard row delete.</summary>
     Task<Result> SoftDeleteTenantAsync(Guid callerUserId, CancellationToken cancellationToken);
 
-    /// <summary>The active tenant's seat limit and current active-member count (member+).</summary>
-    Task<(int SeatLimit, int ActiveMembers)> GetSeatsAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// The active tenant's seat limit and current active-member count (member+),
+    /// plus its assigned plan and that plan's declared numeric limits
+    /// (billing-and-entitlements.md sections 5, 7). The seat limit is
+    /// plan-derived (assign-plan denormalizes it onto the tenant row).
+    /// </summary>
+    Task<(int SeatLimit, int ActiveMembers, string? Plan, IReadOnlyDictionary<string, int> Limits)>
+        GetSeatsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The active tenant's resolved commercial entitlements
+    /// (billing-and-entitlements.md section 3): reads the tenant's plan under RLS
+    /// (the GetSeatsAsync pattern) then resolves it via the platform entitlement
+    /// source. A null / unknown plan resolves to unrestricted (fail open). Backs
+    /// the RequireEntitlement endpoint filter.
+    /// </summary>
+    Task<Entitlements> GetCallerEntitlementsAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Accepts an invitation (its own flow, NOT tenant-admin): the authenticated

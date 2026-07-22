@@ -85,6 +85,36 @@ internal sealed class TenancyApi(
     public Task<Result> EndImpersonationAsync(Guid actorUserId, Guid grantId, CancellationToken cancellationToken) =>
         platform.EndImpersonationAsync(actorUserId, grantId, cancellationToken);
 
+    public Task<IReadOnlyList<(string Key, string Name, IReadOnlyList<string>? Features, IReadOnlyList<string>? Permissions, IReadOnlyDictionary<string, int> Limits, bool IsDefault, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListPlansAsync(CancellationToken cancellationToken) =>
+        platform.ListPlansAsync(cancellationToken);
+
+    public Task<Result> CreatePlanAsync(
+        Guid actorUserId,
+        string key,
+        string name,
+        IReadOnlyList<string>? features,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyDictionary<string, int>? limits,
+        bool isDefault,
+        CancellationToken cancellationToken) =>
+        platform.CreatePlanAsync(actorUserId, key, name, features, permissions, limits, isDefault, cancellationToken);
+
+    public Task<Result> UpdatePlanAsync(
+        Guid actorUserId,
+        string key,
+        string? name,
+        IReadOnlyList<string>? features,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyDictionary<string, int>? limits,
+        bool? isDefault,
+        CancellationToken cancellationToken) =>
+        platform.UpdatePlanAsync(actorUserId, key, name, features, permissions, limits, isDefault, cancellationToken);
+
+    public Task<Result> AssignPlanAsync(
+        Guid actorUserId, Guid tenantId, string planKey, CancellationToken cancellationToken) =>
+        platform.AssignPlanAsync(actorUserId, tenantId, planKey, cancellationToken);
+
     public Task<TenantRole?> GetCallerRoleAsync(Guid userId, CancellationToken cancellationToken) =>
         roles.GetCallerRoleAsync(userId, cancellationToken);
 
@@ -162,8 +192,12 @@ internal sealed class TenancyApi(
     public Task<Result> SoftDeleteTenantAsync(Guid callerUserId, CancellationToken cancellationToken) =>
         admin.SoftDeleteTenantAsync(callerUserId, cancellationToken);
 
-    public Task<(int SeatLimit, int ActiveMembers)> GetSeatsAsync(CancellationToken cancellationToken) =>
+    public Task<(int SeatLimit, int ActiveMembers, string? Plan, IReadOnlyDictionary<string, int> Limits)>
+        GetSeatsAsync(CancellationToken cancellationToken) =>
         admin.GetSeatsAsync(cancellationToken);
+
+    public Task<Entitlements> GetCallerEntitlementsAsync(CancellationToken cancellationToken) =>
+        admin.GetCallerEntitlementsAsync(cancellationToken);
 
     public Task<Result<(Guid TenantId, string Role)>> AcceptInvitationAsync(
         Guid userId, string token, CancellationToken cancellationToken) =>

@@ -256,8 +256,8 @@ public static class TenantAdminEndpoints
     private static async Task<IResult> GetSeatsAsync(
         ITenancyApi tenancy, CancellationToken cancellationToken)
     {
-        var (seatLimit, activeMembers) = await tenancy.GetSeatsAsync(cancellationToken);
-        return Results.Ok(new SeatsResponse(seatLimit, activeMembers));
+        var (seatLimit, activeMembers, plan, limits) = await tenancy.GetSeatsAsync(cancellationToken);
+        return Results.Ok(new SeatsResponse(seatLimit, activeMembers, plan, limits));
     }
 
     private static ProblemHttpResult Validation(HttpContext http, string field, string message) =>
@@ -292,5 +292,10 @@ public sealed record InvitationCreatedResponse(Guid Id);
 public sealed record InvitationResponse(
     Guid Id, string Email, string Role, DateTimeOffset ExpiresAt, DateTimeOffset CreatedAt);
 
-/// <summary>GET /api/v1/tenant/seats success.</summary>
-public sealed record SeatsResponse(int SeatLimit, int ActiveMembers);
+/// <summary>
+/// GET /api/v1/tenant/seats success: the plan-derived seat limit and active-member
+/// count, plus the tenant's plan and that plan's declared numeric limits
+/// (billing-and-entitlements.md sections 5, 7). Plan is null when the tenant has none.
+/// </summary>
+public sealed record SeatsResponse(
+    int SeatLimit, int ActiveMembers, string? Plan, IReadOnlyDictionary<string, int> Limits);
