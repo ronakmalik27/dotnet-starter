@@ -36,6 +36,12 @@ internal static class TenancyProblems
             http, ProblemTypes.WorkspaceSlugTaken, "That workspace slug is already taken.", error.Message),
         "tenancy.workspace_not_found" => NotFound(
             http, ProblemTypes.WorkspaceNotFound, "The workspace does not exist.", error.Message),
+        "tenancy.team_slug_taken" => Conflict(
+            http, ProblemTypes.TeamSlugTaken, "That team slug is already taken.", error.Message),
+        "tenancy.team_not_found" => NotFound(
+            http, ProblemTypes.TeamNotFound, "The team does not exist.", error.Message),
+        "tenancy.team_member_exists" => Conflict(
+            http, ProblemTypes.TeamMemberExists, "That user is already a team member.", error.Message),
         _ => error.ToProblemResult(http),
     };
 

@@ -30,6 +30,13 @@ namespace Starter.Tenancy.ControlPlane;
 /// miss - unknown, accepted, expired, or wrong email - collapses to one generic
 /// outcome so a holder cannot probe which invitations exist.
 /// </para>
+/// <para>
+/// A scope-aware invitation (multi-tenancy.md section 16) also carries a
+/// workspace_id + role_id; when present, the matching workspace-scoped
+/// role_assignment is created in the SAME one transaction as the membership,
+/// consume, and event, so the invitee lands both a member and their scoped role
+/// atomically. The role was validated at invite time, so accept simply binds it.
+/// </para>
 /// </summary>
 internal sealed class InvitationAcceptor(
     BypassDataSource bypass,
@@ -119,11 +126,38 @@ internal sealed class InvitationAcceptor(
             CreatedAt = now,
         });
 
+        // Scope-aware invitation (multi-tenancy.md section 16): when the invite
+        // carries workspace_id + role_id, create the workspace-scoped grant in the
+        // SAME transaction as the membership, so the invitee lands both a member
+        // and "developer on the staging workspace" atomically. The role was
+        // validated at invite time (it exists, is assignable at workspace scope,
+        // and a workspace-local role owns that workspace), so accept just binds it.
+        // tenant_id is stamped from the invitation's tenant, exactly as the
+        // membership row is. principal_type is user (the invitee).
+        Guid? scopedAssignmentId = null;
+        if (invitation.WorkspaceId is Guid workspaceId && invitation.RoleId is Guid scopedRoleId)
+        {
+            scopedAssignmentId = Ids.NewId(now);
+            db.RoleAssignments.Add(new RoleAssignment
+            {
+                Id = scopedAssignmentId.Value,
+                TenantId = invitation.TenantId,
+                PrincipalType = PrincipalType.User,
+                PrincipalId = userId,
+                RoleId = scopedRoleId,
+                ScopeType = AssignmentScope.Workspace,
+                ScopeId = workspaceId,
+                GrantedBy = invitation.InvitedBy,
+                CreatedAt = now,
+            });
+        }
+
         try
         {
             // The unique (tenant_id, user_id) index guards a double accept by the
-            // same account. On a hit the dispose below rolls back the consume too,
-            // so the invitation stays pending and the account stays as it was.
+            // same account. On a hit the dispose below rolls back the consume (and
+            // any scoped grant) too, so the invitation stays pending and the
+            // account stays as it was.
             await db.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
@@ -137,6 +171,14 @@ internal sealed class InvitationAcceptor(
             TenancyEvents.MembershipCreated(membershipId, invitation.TenantId, userId, invitation.Role, now),
             cancellationToken);
 
+        if (scopedAssignmentId is Guid assignmentId && invitation.RoleId is Guid grantedRoleId)
+        {
+            await outbox.EnqueueAsync(
+                db,
+                TenancyEvents.RoleAssignmentGranted(assignmentId, grantedRoleId, userId, invitation.InvitedBy, now),
+                cancellationToken);
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         return Result.Success((invitation.TenantId, invitation.Role));
@@ -146,7 +188,7 @@ internal sealed class InvitationAcceptor(
         NpgsqlConnection connection, string tokenHash, CancellationToken cancellationToken)
     {
         await using var command = new NpgsqlCommand(
-            "select id, tenant_id, email, role, expires_at, accepted_at, invited_by "
+            "select id, tenant_id, email, role, expires_at, accepted_at, invited_by, workspace_id, role_id "
             + "from tenancy.invitations where token_hash = @hash limit 1",
             connection);
         command.Parameters.AddWithValue("hash", tokenHash);
@@ -166,7 +208,13 @@ internal sealed class InvitationAcceptor(
             await reader.IsDBNullAsync(5, cancellationToken)
                 ? null
                 : reader.GetFieldValue<DateTimeOffset>(5),
-            reader.GetGuid(6));
+            reader.GetGuid(6),
+            await reader.IsDBNullAsync(7, cancellationToken)
+                ? null
+                : reader.GetGuid(7),
+            await reader.IsDBNullAsync(8, cancellationToken)
+                ? null
+                : reader.GetGuid(8));
     }
 
     private static async Task<TenantLock?> LockTenantAsync(
@@ -231,7 +279,9 @@ internal sealed class InvitationAcceptor(
         string Role,
         DateTimeOffset ExpiresAt,
         DateTimeOffset? AcceptedAt,
-        Guid InvitedBy);
+        Guid InvitedBy,
+        Guid? WorkspaceId,
+        Guid? RoleId);
 
     private sealed record TenantLock(string Status, int SeatLimit);
 }

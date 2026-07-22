@@ -172,26 +172,16 @@ public static class RoleAdminEndpoints
             return TypedResults.Problem(StarterProblems.Unauthorized(http));
         }
 
-        var errors = new Dictionary<string, string[]>();
-        if (request.RoleId == Guid.Empty)
+        if (ResolvePrincipal(request) is not { } principal)
         {
-            errors["roleId"] = ["A role id is required."];
-        }
-
-        if (request.UserId == Guid.Empty)
-        {
-            errors["userId"] = ["A user id is required."];
-        }
-
-        if (errors.Count > 0)
-        {
-            return TypedResults.Problem(StarterProblems.Validation(http, errors));
+            return TypedResults.Problem(StarterProblems.Validation(http, PrincipalErrors(request)));
         }
 
         var result = await tenancy.AssignRoleAsync(
             callerId.Value,
             request.RoleId,
-            request.UserId,
+            principal.PrincipalType,
+            principal.PrincipalId,
             // The tenant control plane grants at tenant scope; scope_id is null.
             AssignmentScopes.Tenant,
             scopeId: null,
@@ -199,6 +189,48 @@ public static class RoleAdminEndpoints
         return result.Match(
             assignmentId => (IResult)TypedResults.Created((string?)null, new AssignmentCreatedResponse(assignmentId)),
             error => TenancyProblems.From(http, error));
+    }
+
+    /// <summary>
+    /// Resolves an assignment request's principal (multi-tenancy.md sections 13,
+    /// 14): exactly one of userId / teamId must be a non-empty id, and roleId must
+    /// be present. Returns the (type, id) pair on success or null when the request
+    /// is malformed - the caller then renders <see cref="PrincipalErrors"/>. Shared
+    /// by the tenant- and workspace-scope assignment endpoints.
+    /// </summary>
+    internal static (string PrincipalType, Guid PrincipalId)? ResolvePrincipal(AssignRoleRequest request)
+    {
+        var hasUser = request.UserId is { } userId && userId != Guid.Empty;
+        var hasTeam = request.TeamId is { } teamId && teamId != Guid.Empty;
+
+        // Exactly one principal, and a role.
+        if (request.RoleId == Guid.Empty || hasUser == hasTeam)
+        {
+            return null;
+        }
+
+        return hasUser
+            ? (PrincipalTypes.User, request.UserId!.Value)
+            : (PrincipalTypes.Team, request.TeamId!.Value);
+    }
+
+    /// <summary>The field-level validation errors for a malformed assignment principal.</summary>
+    internal static Dictionary<string, string[]> PrincipalErrors(AssignRoleRequest request)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (request.RoleId == Guid.Empty)
+        {
+            errors["roleId"] = ["A role id is required."];
+        }
+
+        var hasUser = request.UserId is { } userId && userId != Guid.Empty;
+        var hasTeam = request.TeamId is { } teamId && teamId != Guid.Empty;
+        if (hasUser == hasTeam)
+        {
+            errors["principal"] = ["Provide exactly one of userId or teamId."];
+        }
+
+        return errors;
     }
 
     private static async Task<IResult> ListAssignmentsAsync(
@@ -244,8 +276,13 @@ public sealed record CreateRoleRequest(
 /// <summary>PATCH /api/v1/tenant/roles/{id} body. A null field leaves that facet unchanged.</summary>
 public sealed record UpdateRoleRequest(string? Name, string? Description, IReadOnlyList<string>? Permissions);
 
-/// <summary>POST /api/v1/tenant/role-assignments body: grant a role to a user at tenant scope.</summary>
-public sealed record AssignRoleRequest(Guid RoleId, Guid UserId);
+/// <summary>
+/// POST /api/v1/tenant/role-assignments (and the workspace-scope equivalent) body:
+/// grant a role to a principal. Name EXACTLY ONE of <paramref name="UserId"/> or
+/// <paramref name="TeamId"/> (multi-tenancy.md sections 13, 14); the other stays
+/// null. A team grant unions into every team member's effective permissions.
+/// </summary>
+public sealed record AssignRoleRequest(Guid RoleId, Guid? UserId, Guid? TeamId);
 
 /// <summary>POST /api/v1/tenant/roles success: the new role's id.</summary>
 public sealed record RoleCreatedResponse(Guid Id);

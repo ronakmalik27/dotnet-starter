@@ -37,6 +37,10 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
 
     public DbSet<RoleAssignment> RoleAssignments => Set<RoleAssignment>();
 
+    public DbSet<Team> Teams => Set<Team>();
+
+    public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -78,6 +82,10 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
             invitation.HasIndex(i => i.TokenHash);
             // The pending-list and duplicate-invite checks key on (tenant, email).
             invitation.HasIndex(i => new { i.TenantId, i.Email });
+            // workspace_id and role_id are nullable scalar columns (the
+            // scope-aware invite, section 16), referenced by value only - no
+            // navigation, so the accept path can read them by raw SQL on the
+            // bypass source. Both are null for a plain tenant invite.
             ApplyTenantFilter(invitation);
         });
 
@@ -145,6 +153,30 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
                 .HasFilter("scope_type = 'workspace'")
                 .HasDatabaseName("ix_role_assignments_workspace_scope_unique");
             ApplyTenantFilter(assignment);
+        });
+
+        modelBuilder.Entity<Team>(team =>
+        {
+            // citext slug, unique per tenant - the same case-insensitive scheme
+            // tenancy.tenants and tenancy.workspaces use, so "Core" and "core"
+            // collide within a tenant and no lookup can forget to normalize.
+            team.Property(t => t.Slug).HasColumnType("citext");
+            team.HasIndex(t => new { t.TenantId, t.Slug }).IsUnique();
+            ApplyTenantFilter(team);
+        });
+
+        modelBuilder.Entity<TeamMember>(member =>
+        {
+            // A user belongs to a team at most once (team_id, user_id).
+            member.HasIndex(m => new { m.TeamId, m.UserId }).IsUnique();
+            // Intra-schema FK: a team's memberships vanish with it (cascade).
+            // Cross-tenant is impossible - both ends carry tenant_id under the
+            // same RLS policy.
+            member.HasOne<Team>()
+                .WithMany()
+                .HasForeignKey(m => m.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+            ApplyTenantFilter(member);
         });
     }
 }

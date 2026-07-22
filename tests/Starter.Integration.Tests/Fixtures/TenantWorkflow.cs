@@ -239,6 +239,63 @@ internal static class TenantWorkflow
         return doc.RootElement.GetProperty("id").GetGuid();
     }
 
+    /// <summary>
+    /// Creates a team over the real endpoint and returns its id. The caller
+    /// (bearer) must hold teams:manage. Asserts 201.
+    /// </summary>
+    public static async Task<Guid> CreateTeamAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        string slug,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture, "/api/v1/tenant/teams", bearer, new { slug, name }, cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
+    /// <summary>
+    /// Adds a user to a team over the real endpoint. The caller (bearer) must hold
+    /// teams:manage. Asserts 201.
+    /// </summary>
+    public static async Task AddTeamMemberAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        Guid teamId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture, $"/api/v1/tenant/teams/{teamId}/members", bearer, new { userId }, cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
+
+    /// <summary>
+    /// Grants a custom role to a TEAM at tenant scope over the real endpoint and
+    /// returns the assignment id. The caller (bearer) must hold roles:manage.
+    /// Asserts 201.
+    /// </summary>
+    public static async Task<Guid> AssignRoleToTeamAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        Guid roleId,
+        Guid teamId,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture,
+            "/api/v1/tenant/role-assignments",
+            bearer,
+            new { roleId, teamId },
+            cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
     private static Task<HttpResponseMessage> SendJsonAsync(
         StarterAppFixture fixture,
         HttpMethod method,

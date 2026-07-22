@@ -15,8 +15,9 @@ namespace Starter.Platform.Auth;
 ///   <item><b>Member</b>: the reads a Part I member had (the member roster and
 ///   seats), own-resource note capabilities, and viewing workspaces.</item>
 ///   <item><b>Admin</b>: everything a member has, plus member management,
-///   invitations, settings, custom-role authoring, and workspace management -
-///   the full Part I admin surface plus creating/archiving workspaces.</item>
+///   invitations, settings, custom-role authoring, workspace management, and
+///   team management - the full Part I admin surface plus creating/archiving
+///   workspaces and managing teams.</item>
 ///   <item><b>Owner</b>: everything an admin has, plus the owner-reserved
 ///   capabilities (rename, delete, ownership transfer) that are never grantable
 ///   through a custom role.</item>
@@ -47,6 +48,9 @@ public static class SystemRolePermissions
             // Creating and archiving workspaces is admin work (section 12); Owner
             // inherits it as a strict superset of Admin below.
             Permissions.WorkspacesManage,
+            // Managing teams (and their members) is admin work (section 14): a
+            // team is a tenant-owned principal that can hold grants.
+            Permissions.TeamsManage,
         ])
         .ToFrozenSet(StringComparer.Ordinal);
 

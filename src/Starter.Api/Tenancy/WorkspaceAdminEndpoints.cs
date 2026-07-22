@@ -274,26 +274,19 @@ public static class WorkspaceAdminEndpoints
             return TypedResults.Problem(StarterProblems.Unauthorized(http));
         }
 
-        var errors = new Dictionary<string, string[]>();
-        if (request.RoleId == Guid.Empty)
+        // Same principal shape as the tenant-scope endpoint (user OR team); the
+        // route segment pins the scope to this workspace.
+        if (RoleAdminEndpoints.ResolvePrincipal(request) is not { } principal)
         {
-            errors["roleId"] = ["A role id is required."];
-        }
-
-        if (request.UserId == Guid.Empty)
-        {
-            errors["userId"] = ["A user id is required."];
-        }
-
-        if (errors.Count > 0)
-        {
-            return TypedResults.Problem(StarterProblems.Validation(http, errors));
+            return TypedResults.Problem(
+                StarterProblems.Validation(http, RoleAdminEndpoints.PrincipalErrors(request)));
         }
 
         var result = await tenancy.AssignRoleAsync(
             callerId.Value,
             request.RoleId,
-            request.UserId,
+            principal.PrincipalType,
+            principal.PrincipalId,
             AssignmentScopes.Workspace,
             workspaceId,
             cancellationToken);

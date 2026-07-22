@@ -430,6 +430,11 @@ if (postgres is not null)
     // (tenant-scope gated) plus workspace-local roles and workspace-scoped grants
     // (workspace-scope gated), all under /api/v1/workspaces.
     app.MapWorkspaceAdminEndpoints();
+    // The team control plane (multi-tenancy.md section 14): team CRUD and team-
+    // member management, all over the active tenant (/api/v1/tenant/teams) and
+    // gated by RequirePermission(teams:manage). A team is a principal that can
+    // hold grants; the resolver unions its grants into each member's permissions.
+    app.MapTeamAdminEndpoints();
     // The workspace-scoped view of the Sample resource
     // (/api/v1/workspaces/{workspaceId}/sample/notes): the worked example of a
     // workspace-scoped resource, gated by notes:read / notes:write at the workspace.

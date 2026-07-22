@@ -129,6 +129,29 @@ public static class ProblemTypes
     public const string TenantRoleInUse = "starter:tenant-role-in-use";
 
     /// <summary>
+    /// 409: team creation asked for a slug already taken within the tenant
+    /// (multi-tenancy.md section 14). A slug is caller-supplied and not a secret,
+    /// so a definite answer is fine (the citext unique index on (tenant_id, slug)
+    /// is the backstop).
+    /// </summary>
+    public const string TeamSlugTaken = "starter:team-slug-taken";
+
+    /// <summary>
+    /// 404: the request named a team that does not exist under the active tenant
+    /// (multi-tenancy.md section 14). Because a team row is tenant-owned under RLS,
+    /// a team id from another tenant is invisible and collapses to this same
+    /// answer, so the team surface never confirms a team exists in a tenant the
+    /// caller cannot see.
+    /// </summary>
+    public const string TeamNotFound = "starter:team-not-found";
+
+    /// <summary>
+    /// 409: the user is already a member of the team, so the membership cannot be
+    /// created again. The unique (team_id, user_id) index is the backstop.
+    /// </summary>
+    public const string TeamMemberExists = "starter:team-member-exists";
+
+    /// <summary>
     /// 409: the tenant is at its seat limit, so an invitation cannot be accepted
     /// into it. A seat is a countable, non-secret resource, so a definite answer
     /// is fine. Concurrent accepts serialize on a tenant row lock, so the count

@@ -151,6 +151,8 @@ internal sealed class TenantAdminService(
         Guid callerUserId,
         string email,
         string role,
+        Guid? workspaceId,
+        Guid? roleId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(email);
@@ -167,6 +169,17 @@ internal sealed class TenantAdminService(
         {
             return Result.Failure<Guid>(new Error(
                 ErrorKind.Validation, "tenancy.invalid_role", "An invited role must be admin or member."));
+        }
+
+        // A scope-aware invite (section 16) carries workspace_id + role_id
+        // TOGETHER: the scoped role to grant, in that workspace, on accept. One
+        // without the other is a malformed invite.
+        if (workspaceId is null != (roleId is null))
+        {
+            return Result.Failure<Guid>(new Error(
+                ErrorKind.Validation,
+                "tenancy.invite_scope_incomplete",
+                "A scope-aware invite requires both a workspaceId and a roleId, or neither."));
         }
 
         // Users are global (no tenant), so this lookup runs outside the tenant
@@ -202,7 +215,22 @@ internal sealed class TenantAdminService(
                 ErrorKind.Conflict, "tenancy.already_member", "That email already has a pending invitation."));
         }
 
-        var (row, rawToken) = InvitationPolicy.Issue(tenant.TenantId, email, role, callerUserId, now);
+        // Validate the scoped role at invite time, the SAME scope guardrails as a
+        // direct grant (section 13): the role must exist, the workspace must
+        // exist, the role must be assignable at workspace scope, and a
+        // workspace-local role must own that same workspace. So an invitation can
+        // never bind a role wider than its scope, and the accept path can trust
+        // the stored pair. All reads are RLS-scoped to the active tenant.
+        if (workspaceId is Guid inviteWorkspace && roleId is Guid inviteRole)
+        {
+            if (await ValidateInviteScopeAsync(inviteWorkspace, inviteRole, cancellationToken) is { } scopeError)
+            {
+                return Result.Failure<Guid>(scopeError);
+            }
+        }
+
+        var (row, rawToken) = InvitationPolicy.Issue(
+            tenant.TenantId, email, role, callerUserId, now, workspaceId, roleId);
         db.Invitations.Add(row);
         await db.SaveChangesAsync(cancellationToken);
         await outbox.EnqueueAsync(
@@ -432,6 +460,55 @@ internal sealed class TenantAdminService(
         await transaction.CommitAsync(cancellationToken);
 
         return (seatLimit, activeMembers);
+    }
+
+    /// <summary>
+    /// Validates a scope-aware invite's workspace + role pair against the section
+    /// 13 grant rules (the workspace exists, the role exists, the role is
+    /// assignable at workspace scope, and a workspace-local role owns that
+    /// workspace). Returns null when the pair is a valid workspace-scope grant, or
+    /// the specific validation error. All reads are RLS-scoped to the active
+    /// tenant, so a workspace or role from another tenant reads as "not found".
+    /// </summary>
+    private async Task<Error?> ValidateInviteScopeAsync(
+        Guid workspaceId, Guid roleId, CancellationToken cancellationToken)
+    {
+        var workspaceExists = await db.Workspaces
+            .AsNoTracking()
+            .AnyAsync(workspace => workspace.Id == workspaceId, cancellationToken);
+        if (!workspaceExists)
+        {
+            return new Error(ErrorKind.NotFound, "tenancy.workspace_not_found", "No such workspace.");
+        }
+
+        var role = await db.Roles
+            .AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == roleId, cancellationToken);
+        if (role is null)
+        {
+            return new Error(ErrorKind.NotFound, "tenancy.role_not_found", "No such custom role.");
+        }
+
+        // A workspace-local role can only be granted at its own workspace (the
+        // section 13 rule), so a scope-aware invite must name that same workspace.
+        if (role.WorkspaceId is Guid roleWorkspace && roleWorkspace != workspaceId)
+        {
+            return new Error(
+                ErrorKind.Validation,
+                "tenancy.workspace_role_scope",
+                "A workspace-local role can only be assigned at its own workspace.");
+        }
+
+        // The role author must have allowed workspace-scope assignment.
+        if (!RoleAssignableAt.Allows(role.AssignableAt, AssignmentScope.Workspace))
+        {
+            return new Error(
+                ErrorKind.Validation,
+                "tenancy.scope_not_assignable",
+                "This role cannot be assigned at workspace scope.");
+        }
+
+        return null;
     }
 
     private static readonly Error LastOwner = new(

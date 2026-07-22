@@ -151,7 +151,15 @@ public static class TenantAdminEndpoints
             return TypedResults.Problem(StarterProblems.Validation(http, errors));
         }
 
-        var result = await tenancy.InviteMemberAsync(callerId.Value, request.Email!, request.Role!, cancellationToken);
+        var result = await tenancy.InviteMemberAsync(
+            callerId.Value,
+            request.Email!,
+            request.Role!,
+            // Scope-aware invite (section 16): both set, or both null for a plain
+            // tenant invite. The service validates the pair at invite time.
+            request.WorkspaceId,
+            request.RoleId,
+            cancellationToken);
         return result.Match(
             id => (IResult)TypedResults.Created((string?)null, new InvitationCreatedResponse(id)),
             error => TenancyProblems.From(http, error));
@@ -260,8 +268,13 @@ public static class TenantAdminEndpoints
 /// <summary>PATCH /api/v1/tenant/members/{userId} body.</summary>
 public sealed record ChangeRoleRequest(string? Role);
 
-/// <summary>POST /api/v1/tenant/invitations body.</summary>
-public sealed record InviteRequest(string? Email, string? Role);
+/// <summary>
+/// POST /api/v1/tenant/invitations body. A scope-aware invite (multi-tenancy.md
+/// section 16) also names a <paramref name="WorkspaceId"/> + <paramref name="RoleId"/>
+/// (both together): the custom role to grant at that workspace when the invite is
+/// accepted. Both null is a plain tenant invite.
+/// </summary>
+public sealed record InviteRequest(string? Email, string? Role, Guid? WorkspaceId, Guid? RoleId);
 
 /// <summary>PATCH /api/v1/tenant body: name and/or slug.</summary>
 public sealed record UpdateSettingsRequest(string? Name, string? Slug);

@@ -339,12 +339,20 @@ internal sealed class CustomRoleService(
     public async Task<Result<Guid>> AssignRoleAsync(
         Guid callerUserId,
         Guid roleId,
-        Guid principalUserId,
+        string principalType,
+        Guid principalId,
         string scopeType,
         Guid? scopeId,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(principalType);
         ArgumentNullException.ThrowIfNull(scopeType);
+
+        if (principalType is not (PrincipalType.User or PrincipalType.Team))
+        {
+            return Result.Failure<Guid>(new Error(
+                ErrorKind.Validation, "tenancy.principal_type_invalid", "principalType must be user or team."));
+        }
 
         if (scopeType is not (AssignmentScope.Tenant or AssignmentScope.Workspace))
         {
@@ -410,26 +418,45 @@ internal sealed class CustomRoleService(
             }
         }
 
-        // The principal must be an active member of the tenant (RLS-scoped read).
-        var isActiveMember = await db.Memberships
-            .AsNoTracking()
-            .AnyAsync(
-                membership => membership.UserId == principalUserId
-                    && membership.Status == MembershipStatus.Active,
-                cancellationToken);
-        if (!isActiveMember)
+        // The principal must exist in the active tenant (RLS-scoped read): a user
+        // principal must be an ACTIVE member; a team principal must be a real team.
+        // Both reads are RLS-bound, so a principal from another tenant is invisible
+        // and fails validation like any absent one.
+        if (principalType == PrincipalType.User)
         {
-            return Result.Failure<Guid>(new Error(
-                ErrorKind.Validation,
-                "tenancy.principal_not_member",
-                "The target user is not an active member of this tenant."));
+            var isActiveMember = await db.Memberships
+                .AsNoTracking()
+                .AnyAsync(
+                    membership => membership.UserId == principalId
+                        && membership.Status == MembershipStatus.Active,
+                    cancellationToken);
+            if (!isActiveMember)
+            {
+                return Result.Failure<Guid>(new Error(
+                    ErrorKind.Validation,
+                    "tenancy.principal_not_member",
+                    "The target user is not an active member of this tenant."));
+            }
+        }
+        else
+        {
+            var teamExists = await db.Teams
+                .AsNoTracking()
+                .AnyAsync(team => team.Id == principalId, cancellationToken);
+            if (!teamExists)
+            {
+                return Result.Failure<Guid>(new Error(
+                    ErrorKind.Validation,
+                    "tenancy.principal_team_not_found",
+                    "The target team does not exist in this tenant."));
+            }
         }
 
         var alreadyAssigned = await db.RoleAssignments
             .AsNoTracking()
             .AnyAsync(
-                assignment => assignment.PrincipalType == PrincipalType.User
-                    && assignment.PrincipalId == principalUserId
+                assignment => assignment.PrincipalType == principalType
+                    && assignment.PrincipalId == principalId
                     && assignment.RoleId == roleId
                     && assignment.ScopeType == scopeType
                     && assignment.ScopeId == normalizedScopeId,
@@ -443,8 +470,8 @@ internal sealed class CustomRoleService(
         {
             Id = Ids.NewId(now),
             TenantId = tenant.TenantId,
-            PrincipalType = PrincipalType.User,
-            PrincipalId = principalUserId,
+            PrincipalType = principalType,
+            PrincipalId = principalId,
             RoleId = roleId,
             ScopeType = scopeType,
             ScopeId = normalizedScopeId,
@@ -464,7 +491,7 @@ internal sealed class CustomRoleService(
 
         await outbox.EnqueueAsync(
             db,
-            TenancyEvents.RoleAssignmentGranted(assignmentRow.Id, roleId, principalUserId, callerUserId, now),
+            TenancyEvents.RoleAssignmentGranted(assignmentRow.Id, roleId, principalId, callerUserId, now),
             cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

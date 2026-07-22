@@ -372,4 +372,97 @@ internal static class TenancyEvents
             ActorUserId = actorUserId,
             Payload = JsonSerializer.Serialize(new { roleId, principalId }, Json),
         };
+
+    /// <summary>
+    /// tenancy.team.created: a tenant admin created a team (a principal that can
+    /// hold grants, section 14). Actor is the creator; the coarse slug rides the
+    /// payload.
+    /// </summary>
+    public static DomainEventRecord TeamCreated(
+        Guid teamId,
+        string slug,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.team.created",
+            EntityId = teamId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { slug }, Json),
+        };
+
+    /// <summary>tenancy.team.renamed: a tenant admin renamed a team.</summary>
+    public static DomainEventRecord TeamRenamed(
+        Guid teamId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.team.renamed",
+            EntityId = teamId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.team.deleted: a tenant admin deleted a team; its grants were removed
+    /// first so none dangles (section 20), and its team_members cascaded with it.
+    /// </summary>
+    public static DomainEventRecord TeamDeleted(
+        Guid teamId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.team.deleted",
+            EntityId = teamId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.team.member_added: a user was added to a team, so the team's grants
+    /// confer to them on their next request (section 14). Actor is the admin; the
+    /// added user rides the payload.
+    /// </summary>
+    public static DomainEventRecord TeamMemberAdded(
+        Guid teamId,
+        Guid userId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.team.member_added",
+            EntityId = teamId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { userId }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.team.member_removed: a user was removed from a team, so the team's
+    /// grants stop conferring to them on their next request (section 14). Actor is
+    /// the admin; the removed user rides the payload.
+    /// </summary>
+    public static DomainEventRecord TeamMemberRemoved(
+        Guid teamId,
+        Guid userId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.team.member_removed",
+            EntityId = teamId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { userId }, Json),
+        };
 }

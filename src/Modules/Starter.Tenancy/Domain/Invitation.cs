@@ -13,6 +13,13 @@ namespace Starter.Tenancy.Domain;
 /// <see cref="AcceptedAt"/> (set once at consumption); expiry by
 /// <see cref="ExpiresAt"/>. Only admin | member is ever invited: ownership is
 /// transferred, never invited.
+/// <para>
+/// A scope-aware invitation (multi-tenancy.md section 16) also carries a
+/// <see cref="WorkspaceId"/> and a <see cref="RoleId"/> (a custom role): on
+/// accept, the matching workspace-scoped role_assignment is created in the same
+/// bypass transaction as the membership. Both are null for a plain tenant invite;
+/// they are set together for "invited straight into a role on a workspace".
+/// </para>
 /// </summary>
 internal sealed class Invitation : ITenantOwned
 {
@@ -33,6 +40,20 @@ internal sealed class Invitation : ITenantOwned
 
     /// <summary>Set exactly once when the invitation is consumed; never cleared.</summary>
     public DateTimeOffset? AcceptedAt { get; set; }
+
+    /// <summary>
+    /// The workspace a scope-aware invite grants a role in (section 16), or null
+    /// for a plain tenant invite. Set together with <see cref="RoleId"/>.
+    /// </summary>
+    public Guid? WorkspaceId { get; init; }
+
+    /// <summary>
+    /// The custom role to grant at <see cref="WorkspaceId"/> on accept, or null
+    /// for a plain tenant invite. Validated at invite time (the role exists, is
+    /// assignable at workspace scope, and a workspace-local role owns that same
+    /// workspace); set together with <see cref="WorkspaceId"/>.
+    /// </summary>
+    public Guid? RoleId { get; init; }
 
     /// <summary>The admin who created the invitation. A bare id by value, no cross-schema FK.</summary>
     public required Guid InvitedBy { get; init; }

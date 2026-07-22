@@ -77,6 +77,7 @@ public static class TenancyModule
         services.AddScoped<PermissionResolver>();
         services.AddScoped<CustomRoleService>();
         services.AddScoped<WorkspaceService>();
+        services.AddScoped<TeamService>();
         services.AddScoped<TenantAdminService>();
 
         services.AddScoped<ITenancyApi, TenancyApi>();

@@ -161,13 +161,23 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result> RemoveMemberAsync(Guid callerUserId, Guid targetUserId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Invites an email (admin+) with an admin|member role: creates a hashed,
+    /// Invites an email (admin+) with an admin|member base role: creates a hashed,
     /// single-use, expiring invitation and emails the link. Refuses inviting an
     /// address that is already an active member or already has a pending invite.
-    /// Returns the new invitation id.
+    /// A scope-aware invite (multi-tenancy.md section 16) also passes a
+    /// <paramref name="workspaceId"/> + <paramref name="roleId"/> (both together,
+    /// or both null): the custom role to grant at that workspace on accept,
+    /// validated at invite time (the role exists, is assignable at workspace
+    /// scope, and a workspace-local role owns that workspace). Returns the new
+    /// invitation id.
     /// </summary>
     Task<Result<Guid>> InviteMemberAsync(
-        Guid callerUserId, string email, string role, CancellationToken cancellationToken);
+        Guid callerUserId,
+        string email,
+        string role,
+        Guid? workspaceId,
+        Guid? roleId,
+        CancellationToken cancellationToken);
 
     /// <summary>Lists the active tenant's pending (unaccepted, unexpired) invitations (admin+).</summary>
     Task<IReadOnlyList<(Guid Id, string Email, string Role, DateTimeOffset ExpiresAt, DateTimeOffset CreatedAt)>>
@@ -321,18 +331,23 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result> DeleteRoleAsync(Guid callerUserId, Guid roleId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Assigns a custom role to a user at a scope (roles:manage at that scope).
-    /// <paramref name="scopeType"/> is tenant | workspace; <paramref name="scopeId"/>
-    /// is null for tenant scope, else the workspace id. Validates that the role's
-    /// assignable_at allows the scope, that a workspace-local role is assigned only
-    /// at its own workspace (else Validation tenancy.workspace_role_scope), that a
-    /// named workspace exists, and that the principal is an active member. Returns
-    /// the new assignment id. A duplicate grant at the same scope is a Conflict.
+    /// Assigns a custom role to a principal at a scope (roles:manage at that
+    /// scope). <paramref name="principalType"/> is user | team and
+    /// <paramref name="principalId"/> is the user or team id (multi-tenancy.md
+    /// sections 13, 14). <paramref name="scopeType"/> is tenant | workspace;
+    /// <paramref name="scopeId"/> is null for tenant scope, else the workspace id.
+    /// Validates that the role's assignable_at allows the scope, that a
+    /// workspace-local role is assigned only at its own workspace (else Validation
+    /// tenancy.workspace_role_scope), that a named workspace exists, and that the
+    /// principal exists in this tenant (a user principal is an active member; a
+    /// team principal is a real team). Returns the new assignment id. A duplicate
+    /// grant at the same scope is a Conflict.
     /// </summary>
     Task<Result<Guid>> AssignRoleAsync(
         Guid callerUserId,
         Guid roleId,
-        Guid principalUserId,
+        string principalType,
+        Guid principalId,
         string scopeType,
         Guid? scopeId,
         CancellationToken cancellationToken);
@@ -347,4 +362,59 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// <summary>Lists a workspace's role assignments (roles:manage at that workspace).</summary>
     Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
         ListWorkspaceAssignmentsAsync(Guid workspaceId, CancellationToken cancellationToken);
+
+    // --- Teams (active tenant, request path under RLS) --------------------
+    // A team is a named group of users INSIDE the tenant that can hold grants
+    // (multi-tenancy.md sections 14, 20), tenant-owned under RLS. Every command
+    // below operates on the ACTIVE tenant and is gated by
+    // RequirePermission("teams:manage"). A role is granted TO a team through the
+    // assignment API above (principalType = team).
+
+    /// <summary>
+    /// Creates a team (teams:manage). Validates the slug and name and refuses a
+    /// duplicate slug within the tenant (Conflict tenancy.team_slug_taken).
+    /// Returns the new team id.
+    /// </summary>
+    Task<Result<Guid>> CreateTeamAsync(
+        Guid callerUserId, string slug, string name, CancellationToken cancellationToken);
+
+    /// <summary>Lists the active tenant's teams (teams:manage): id, slug, name, created-at.</summary>
+    Task<IReadOnlyList<(Guid Id, string Slug, string Name, DateTimeOffset CreatedAt)>>
+        ListTeamsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Gets one team (teams:manage). Unknown id is a NotFound (tenancy.team_not_found).</summary>
+    Task<Result<(Guid Id, string Slug, string Name, DateTimeOffset CreatedAt)>>
+        GetTeamAsync(Guid teamId, CancellationToken cancellationToken);
+
+    /// <summary>Renames a team (teams:manage). Unknown id is a NotFound.</summary>
+    Task<Result> RenameTeamAsync(
+        Guid callerUserId, Guid teamId, string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a team (teams:manage). Removes the team's role_assignments first so
+    /// no grant dangles (multi-tenancy.md section 20); its team_members cascade
+    /// via the FK. Unknown id is a NotFound. A member who held a permission only
+    /// through this team loses it on their next request.
+    /// </summary>
+    Task<Result> DeleteTeamAsync(Guid callerUserId, Guid teamId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Adds a user to a team (teams:manage). The user must be an active tenant
+    /// member (else Validation tenancy.principal_not_member). Refuses a duplicate
+    /// (Conflict tenancy.team_member_exists). Returns the new team-member row id.
+    /// The team's grants confer to the user on their next request.
+    /// </summary>
+    Task<Result<Guid>> AddTeamMemberAsync(
+        Guid callerUserId, Guid teamId, Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes a user from a team (teams:manage). Unknown pairing is a NotFound.
+    /// The team's grants stop conferring to the user on their next request.
+    /// </summary>
+    Task<Result> RemoveTeamMemberAsync(
+        Guid callerUserId, Guid teamId, Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>Lists a team's members (teams:manage): user id, joined-at. Unknown team is a NotFound.</summary>
+    Task<Result<IReadOnlyList<(Guid UserId, DateTimeOffset CreatedAt)>>>
+        ListTeamMembersAsync(Guid teamId, CancellationToken cancellationToken);
 }

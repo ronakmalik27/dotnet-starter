@@ -17,14 +17,19 @@ internal static class InvitationPolicy
     /// <summary>
     /// Builds an invitations row for the tenant with a fresh hashed token. The
     /// raw token is returned alongside for the emailed link and is never
-    /// persisted or logged.
+    /// persisted or logged. A scope-aware invite (section 16) also carries a
+    /// <paramref name="workspaceId"/> + <paramref name="roleId"/> (both set
+    /// together, both null for a plain tenant invite); the caller validates them
+    /// before issuing.
     /// </summary>
     public static (Invitation Row, string RawToken) Issue(
         Guid tenantId,
         string email,
         string role,
         Guid invitedBy,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        Guid? workspaceId = null,
+        Guid? roleId = null)
     {
         var rawToken = InvitationTokenSecrets.NewToken();
         var row = new Invitation
@@ -36,6 +41,8 @@ internal static class InvitationPolicy
             TokenHash = InvitationTokenSecrets.Hash(rawToken),
             ExpiresAt = now + TokenLifetime,
             AcceptedAt = null,
+            WorkspaceId = workspaceId,
+            RoleId = roleId,
             InvitedBy = invitedBy,
             CreatedAt = now,
         };

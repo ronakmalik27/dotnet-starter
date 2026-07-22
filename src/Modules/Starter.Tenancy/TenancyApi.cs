@@ -20,6 +20,7 @@ internal sealed class TenancyApi(
     PermissionResolver permissions,
     CustomRoleService customRoles,
     WorkspaceService workspaces,
+    TeamService teams,
     TenantAdminService admin,
     InvitationAcceptor acceptor,
     PlatformAdminDirectory platformAdmins,
@@ -131,8 +132,13 @@ internal sealed class TenancyApi(
         admin.RemoveMemberAsync(callerUserId, targetUserId, cancellationToken);
 
     public Task<Result<Guid>> InviteMemberAsync(
-        Guid callerUserId, string email, string role, CancellationToken cancellationToken) =>
-        admin.InviteMemberAsync(callerUserId, email, role, cancellationToken);
+        Guid callerUserId,
+        string email,
+        string role,
+        Guid? workspaceId,
+        Guid? roleId,
+        CancellationToken cancellationToken) =>
+        admin.InviteMemberAsync(callerUserId, email, role, workspaceId, roleId, cancellationToken);
 
     public Task<IReadOnlyList<(Guid Id, string Email, string Role, DateTimeOffset ExpiresAt, DateTimeOffset CreatedAt)>>
         ListInvitationsAsync(CancellationToken cancellationToken) =>
@@ -199,11 +205,13 @@ internal sealed class TenancyApi(
     public Task<Result<Guid>> AssignRoleAsync(
         Guid callerUserId,
         Guid roleId,
-        Guid principalUserId,
+        string principalType,
+        Guid principalId,
         string scopeType,
         Guid? scopeId,
         CancellationToken cancellationToken) =>
-        customRoles.AssignRoleAsync(callerUserId, roleId, principalUserId, scopeType, scopeId, cancellationToken);
+        customRoles.AssignRoleAsync(
+            callerUserId, roleId, principalType, principalId, scopeType, scopeId, cancellationToken);
 
     public Task<Result> RevokeAssignmentAsync(
         Guid callerUserId, Guid assignmentId, CancellationToken cancellationToken) =>
@@ -216,4 +224,35 @@ internal sealed class TenancyApi(
     public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
         ListWorkspaceAssignmentsAsync(Guid workspaceId, CancellationToken cancellationToken) =>
         customRoles.ListWorkspaceAssignmentsAsync(workspaceId, cancellationToken);
+
+    public Task<Result<Guid>> CreateTeamAsync(
+        Guid callerUserId, string slug, string name, CancellationToken cancellationToken) =>
+        teams.CreateTeamAsync(callerUserId, slug, name, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid Id, string Slug, string Name, DateTimeOffset CreatedAt)>>
+        ListTeamsAsync(CancellationToken cancellationToken) =>
+        teams.ListTeamsAsync(cancellationToken);
+
+    public Task<Result<(Guid Id, string Slug, string Name, DateTimeOffset CreatedAt)>>
+        GetTeamAsync(Guid teamId, CancellationToken cancellationToken) =>
+        teams.GetTeamAsync(teamId, cancellationToken);
+
+    public Task<Result> RenameTeamAsync(
+        Guid callerUserId, Guid teamId, string name, CancellationToken cancellationToken) =>
+        teams.RenameTeamAsync(callerUserId, teamId, name, cancellationToken);
+
+    public Task<Result> DeleteTeamAsync(Guid callerUserId, Guid teamId, CancellationToken cancellationToken) =>
+        teams.DeleteTeamAsync(callerUserId, teamId, cancellationToken);
+
+    public Task<Result<Guid>> AddTeamMemberAsync(
+        Guid callerUserId, Guid teamId, Guid userId, CancellationToken cancellationToken) =>
+        teams.AddMemberAsync(callerUserId, teamId, userId, cancellationToken);
+
+    public Task<Result> RemoveTeamMemberAsync(
+        Guid callerUserId, Guid teamId, Guid userId, CancellationToken cancellationToken) =>
+        teams.RemoveMemberAsync(callerUserId, teamId, userId, cancellationToken);
+
+    public Task<Result<IReadOnlyList<(Guid UserId, DateTimeOffset CreatedAt)>>>
+        ListTeamMembersAsync(Guid teamId, CancellationToken cancellationToken) =>
+        teams.ListMembersAsync(teamId, cancellationToken);
 }
