@@ -15,9 +15,9 @@ namespace Starter.Platform.Auth;
 ///   <item><b>Member</b>: the reads a Part I member had (the member roster and
 ///   seats), own-resource note capabilities, and viewing workspaces.</item>
 ///   <item><b>Admin</b>: everything a member has, plus member management,
-///   invitations, settings, custom-role authoring, workspace management, and
-///   team management - the full Part I admin surface plus creating/archiving
-///   workspaces and managing teams.</item>
+///   invitations, settings, custom-role authoring, workspace management, team
+///   management, and reading the tenant audit log - the full Part I admin surface
+///   plus creating/archiving workspaces, managing teams, and audit-log reads.</item>
 ///   <item><b>Owner</b>: everything an admin has, plus the owner-reserved
 ///   capabilities (rename, delete, ownership transfer) that are never grantable
 ///   through a custom role.</item>
@@ -51,6 +51,11 @@ public static class SystemRolePermissions
             // Managing teams (and their members) is admin work (section 14): a
             // team is a tenant-owned principal that can hold grants.
             Permissions.TeamsManage,
+            // Reading the tenant audit log is admin work (audit-log.md section 7):
+            // tenant Admins and Owners can read it, Members cannot. It is grantable
+            // in a custom role like any non-owner-reserved permission, so a tenant
+            // can mint a read-only Auditor role.
+            Permissions.AuditRead,
         ])
         .ToFrozenSet(StringComparer.Ordinal);
 

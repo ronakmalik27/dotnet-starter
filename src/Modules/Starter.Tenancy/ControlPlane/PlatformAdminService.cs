@@ -32,6 +32,7 @@ namespace Starter.Tenancy.ControlPlane;
 internal sealed class PlatformAdminService(
     BypassDataSource bypass,
     OutboxWriter outbox,
+    IPlatformAuditWriter auditWriter,
     IUserDirectory users,
     Clock clock,
     IOptions<PlatformAdminOptions> options)
@@ -228,11 +229,18 @@ internal sealed class PlatformAdminService(
         var inserted = await insert.ExecuteNonQueryAsync(cancellationToken);
 
         // Idempotent: an already-granted user is a benign success with no
-        // duplicate event. Only a genuine new grant emits the audit event.
+        // duplicate event. Only a genuine new grant emits the audit event AND
+        // writes the platform audit row - on the SAME branch, in the SAME
+        // transaction, PK = the emitted event id (audit-log.md section 2), so
+        // there is never an audit row without a real action, and never a
+        // duplicate. platform.admin.* is null-tenant, so it is audited here
+        // synchronously, not by the async tenant projection.
         if (inserted == 1)
         {
-            await outbox.EnqueueAsync(
-                db, PlatformAdminEvents.PlatformAdminGranted(userId, actorUserId, now), cancellationToken);
+            var granted = PlatformAdminEvents.PlatformAdminGranted(userId, actorUserId, now);
+            await outbox.EnqueueAsync(db, granted, cancellationToken);
+            await auditWriter.WriteAsync(
+                connection, dbTransaction, granted, subjectUserId: userId, cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -271,8 +279,14 @@ internal sealed class PlatformAdminService(
         delete.Parameters.AddWithValue("user", targetUserId);
         await delete.ExecuteNonQueryAsync(cancellationToken);
 
-        await outbox.EnqueueAsync(
-            db, PlatformAdminEvents.PlatformAdminRevoked(targetUserId, actorUserId, now), cancellationToken);
+        // This branch is the only one that commits the delete + emits the event
+        // (the not-found and last-admin guards above returned early, committing
+        // nothing), so the platform audit row rides the same transaction with
+        // PK = the emitted event id (audit-log.md section 2).
+        var revoked = PlatformAdminEvents.PlatformAdminRevoked(targetUserId, actorUserId, now);
+        await outbox.EnqueueAsync(db, revoked, cancellationToken);
+        await auditWriter.WriteAsync(
+            connection, dbTransaction, revoked, subjectUserId: targetUserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return Result.Success();

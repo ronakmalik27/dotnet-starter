@@ -11,8 +11,13 @@ namespace Starter.Platform.Data;
 /// and idempotency_keys - the plumbing every module shares. It also owns the
 /// DataProtection key ring (see <see cref="DataProtectionKeys"/>), so key
 /// material persists to Postgres instead of the container filesystem.
-/// Platform tables are not tenant-owned (no RLS); the context still carries an
-/// <see cref="ITenantContext"/> so it fits the one module-context shape.
+/// Platform tables are not tenant-owned (no RLS), with a single deliberate
+/// exception: <c>platform.audit_log</c> (the per-tenant audit projection,
+/// <see cref="AuditLogRow"/>) IS tenant-owned and RLS-enforced, so a tenant admin
+/// reading their audit log is bound by the same authoritative boundary as every
+/// other tenant read (audit-log.md section 9). The context carries an
+/// <see cref="ITenantContext"/> so it fits the one module-context shape, and the
+/// interceptor sets the RLS GUC for the audit-log read/write.
 /// </summary>
 internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options, ITenantContext tenantContext)
     : ModuleDbContext(options, SchemaName, tenantContext), IDataProtectionKeyContext
@@ -112,6 +117,48 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.HasIndex(e => e.PlatformAdminUserId);
             entity.HasIndex(e => e.TargetTenantId);
         });
+
+        modelBuilder.Entity<AuditLogRow>(entity =>
+        {
+            // The per-tenant audit projection (audit-log.md section 3). The FIRST
+            // and only tenant-owned, RLS-enforced table in the platform schema:
+            // the RLS policy is hand-written in the migration (EF cannot express
+            // ENABLE/FORCE RLS or a policy), and the EF query filter is applied
+            // here for ergonomics + defense in depth, exactly like every other
+            // tenant-owned entity. pk = the source event id (idempotent
+            // projection); data is the event payload verbatim (jsonb).
+            entity.ToTable("audit_log");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Action).HasColumnType("text");
+            entity.Property(e => e.Summary).HasColumnType("text");
+            entity.Property(e => e.Data).HasColumnType("jsonb");
+            // The default reverse-chronological feed and keyset cursor.
+            entity.HasIndex(e => new { e.TenantId, e.OccurredAt })
+                .IsDescending(false, true)
+                .HasDatabaseName("ix_audit_log_tenant_occurred");
+            // The two common filters, actor and action, each keyset-ordered.
+            entity.HasIndex(e => new { e.TenantId, e.ActorUserId, e.OccurredAt })
+                .IsDescending(false, false, true)
+                .HasDatabaseName("ix_audit_log_tenant_actor_occurred");
+            entity.HasIndex(e => new { e.TenantId, e.Action, e.OccurredAt })
+                .IsDescending(false, false, true)
+                .HasDatabaseName("ix_audit_log_tenant_action_occurred");
+            ApplyTenantFilter(entity);
+        });
+
+        modelBuilder.Entity<PlatformAuditLogRow>(entity =>
+        {
+            // The platform (null-tenant) audit log (audit-log.md section 4). NOT
+            // tenant-owned, no RLS, no tenant filter - consistent with every other
+            // platform table. Written only on the bypass path (in the same
+            // transaction as the admin grant/revoke it records) and read only
+            // behind RequirePlatformAdmin. pk = the source event id.
+            entity.ToTable("platform_audit_log");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Action).HasColumnType("text");
+            entity.Property(e => e.Summary).HasColumnType("text");
+            entity.Property(e => e.Data).HasColumnType("jsonb");
+        });
     }
 
     /// <summary>The cross-tenant operators (mapping only; the runtime uses raw bypass SQL).</summary>
@@ -119,4 +166,10 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
     /// <summary>The impersonation audit spine (mapping only; the runtime uses raw bypass SQL).</summary>
     internal DbSet<ImpersonationGrantRow> ImpersonationGrants => Set<ImpersonationGrantRow>();
+
+    /// <summary>The per-tenant audit projection (RLS-enforced; written by the consumer, read RLS-bound or via bypass).</summary>
+    internal DbSet<AuditLogRow> AuditLog => Set<AuditLogRow>();
+
+    /// <summary>The platform (null-tenant) audit log (no RLS; written on the bypass path, read behind RequirePlatformAdmin).</summary>
+    internal DbSet<PlatformAuditLogRow> PlatformAuditLog => Set<PlatformAuditLogRow>();
 }

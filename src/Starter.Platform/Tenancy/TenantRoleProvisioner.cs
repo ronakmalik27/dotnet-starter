@@ -99,6 +99,18 @@ public sealed class TenantRoleProvisioner
     /// schemas: USAGE on the schema, DML on every table, and the sequence
     /// rights a table might need. Run AFTER migrations, since the bypass role
     /// owns the freshly-created tables. Idempotent.
+    /// <para>
+    /// It then runs the audit-log REVOKE pass (audit-log.md section 8), AFTER the
+    /// blanket grant so it is never silently undone: the append-only tenant audit
+    /// log <c>platform.audit_log</c> loses UPDATE and DELETE (select + insert
+    /// only), and the null-tenant <c>platform.platform_audit_log</c> loses every
+    /// privilege (the request role can neither see nor forge it). So an attacker
+    /// who reaches request-role SQL still cannot edit or erase the tenant audit
+    /// trail, and cannot touch the platform trail at all. This is
+    /// DB-enforced-append-only, part of this increment's build sequence, not an
+    /// optional hardening. Guarded on the platform schema being present, and
+    /// idempotent (REVOKE of an absent privilege is a no-op).
+    /// </para>
     /// </summary>
     public async Task GrantRequestRolePrivilegesAsync(
         IReadOnlyCollection<string> schemas,
@@ -120,6 +132,19 @@ public sealed class TenantRoleProvisioner
             + $"grant select, insert, update, delete on all tables in schema {schemaList} to {RequestRole};"
             + $"grant usage, select on all sequences in schema {schemaList} to {RequestRole};",
             cancellationToken);
+
+        // The audit-log append-only / bypass-only REVOKE pass, run in the same
+        // provisioner step every boot, AFTER the blanket grant above. Only when
+        // the platform schema is present (it always is on a real boot); the two
+        // audit tables live in it.
+        if (schemas.Contains(Starter.Platform.Data.PlatformDbContext.SchemaName, StringComparer.Ordinal))
+        {
+            await ExecuteAsync(
+                connection,
+                $"revoke update, delete on platform.audit_log from {RequestRole};"
+                + $"revoke all on platform.platform_audit_log from {RequestRole};",
+                cancellationToken);
+        }
     }
 
     private async Task EnsureRoleAsync(

@@ -712,7 +712,8 @@ rewrite:
   catalogue (section 15) and features per plan.
 - **A first-class, queryable audit log**: distinct from `domain_events`; a
   projection built by a consumer off the outbox (the impersonation grant is the
-  first audited action).
+  first audited action). DESIGNED and being built out - see
+  [audit-log.md](audit-log.md).
 - **Outbound webhooks**: a consumer that fans domain events out to
   tenant-registered endpoints, reusing the at-least-once delivery the outbox
   gives.

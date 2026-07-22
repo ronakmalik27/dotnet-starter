@@ -53,6 +53,9 @@ public static class Permissions
     /// <summary>Manage teams and their members. Defined now; its endpoints arrive in increment 7.</summary>
     public const string TeamsManage = "teams:manage";
 
+    /// <summary>Read the tenant's audit log (audit-log.md section 7).</summary>
+    public const string AuditRead = "audit:read";
+
     /// <summary>Owner-reserved: rename or reconfigure the tenant. Never grantable in a custom role.</summary>
     public const string TenantManage = "tenant:manage";
 
@@ -80,6 +83,7 @@ public static class Permissions
         WorkspacesRead,
         WorkspacesManage,
         TeamsManage,
+        AuditRead,
         TenantManage,
         TenantDelete,
         TenantTransferOwnership,

@@ -14,6 +14,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
+using Starter.Api.Audit;
 using Starter.Api.Identity;
 using Starter.Api.Platform;
 using Starter.Api.Sample;
@@ -443,6 +444,12 @@ if (postgres is not null)
     // platform-admin roster, audited impersonation), all under /api/v1/platform
     // and gated by RequirePlatformAdmin - never a tenant role.
     app.MapPlatformAdminEndpoints();
+    // The audit log (audit-log.md section 6): the tenant-admin read over the
+    // active tenant (/api/v1/tenant/audit, gated by audit:read, RLS-scoped) and
+    // the super-admin cross-tenant read (/api/v1/platform/audit, behind
+    // RequirePlatformAdmin, with a tenant filter and a scope=platform selector).
+    app.MapTenantAuditEndpoints();
+    app.MapPlatformAuditEndpoints();
 
     ApiVersionSet versionSet = app.NewApiVersionSet()
         .HasApiVersion(new ApiVersion(1))
