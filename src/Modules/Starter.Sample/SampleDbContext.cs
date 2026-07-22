@@ -42,6 +42,14 @@ internal sealed class SampleDbContext(DbContextOptions<SampleDbContext> options,
             // a page is a single index range scan within one tenant.
             note.HasIndex(n => new { n.TenantId, n.OwnerUserId, n.CreatedAt, n.Id })
                 .IsDescending(false, false, true, true);
+            // Workspace-scoped listing (multi-tenancy.md section 12): the same
+            // owner-scoped keyset page filtered to one workspace. Leads with
+            // (tenant_id, workspace_id) - the equality prefix a workspace list
+            // scans - then owner, then the sort key, so a workspace page is a
+            // single index range scan. workspace_id is nullable; a tenant-level
+            // list (workspace_id null) still uses the index above.
+            note.HasIndex(n => new { n.TenantId, n.WorkspaceId, n.OwnerUserId, n.CreatedAt, n.Id })
+                .IsDescending(false, false, false, true, true);
             ApplyTenantFilter(note);
         });
 

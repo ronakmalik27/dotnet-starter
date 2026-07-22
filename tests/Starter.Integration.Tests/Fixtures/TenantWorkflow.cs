@@ -174,6 +174,71 @@ internal static class TenantWorkflow
         return doc.RootElement.GetProperty("id").GetGuid();
     }
 
+    /// <summary>
+    /// Creates a workspace over the real endpoint and returns its id. The caller
+    /// (bearer) must hold workspaces:manage. Asserts 201.
+    /// </summary>
+    public static async Task<Guid> CreateWorkspaceAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        string slug,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture, "/api/v1/workspaces", bearer, new { slug, name }, cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
+    /// <summary>
+    /// Creates a WORKSPACE-LOCAL custom role over the real endpoint and returns
+    /// its id. The caller (bearer) must hold roles:manage at that workspace.
+    /// Asserts 201.
+    /// </summary>
+    public static async Task<Guid> CreateWorkspaceRoleAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        Guid workspaceId,
+        string key,
+        IReadOnlyCollection<string> permissions,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture,
+            $"/api/v1/workspaces/{workspaceId}/roles",
+            bearer,
+            new { key, name = key, permissions },
+            cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
+    /// <summary>
+    /// Creates a tenant-owned custom role with an explicit assignable scope over
+    /// the real endpoint and returns its id. Asserts 201.
+    /// </summary>
+    public static async Task<Guid> CreateRoleAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        string key,
+        string assignableAt,
+        IReadOnlyCollection<string> permissions,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture,
+            "/api/v1/tenant/roles",
+            bearer,
+            new { key, name = key, assignableAt, permissions },
+            cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
     private static Task<HttpResponseMessage> SendJsonAsync(
         StarterAppFixture fixture,
         HttpMethod method,

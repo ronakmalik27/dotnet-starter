@@ -426,6 +426,14 @@ if (postgres is not null)
     // The scoped-RBAC control plane (custom-role CRUD and role assignments), all
     // over the active tenant (/api/v1/tenant) and gated by RequirePermission.
     app.MapRoleAdminEndpoints();
+    // The workspace control plane (multi-tenancy.md section 12): workspace CRUD
+    // (tenant-scope gated) plus workspace-local roles and workspace-scoped grants
+    // (workspace-scope gated), all under /api/v1/workspaces.
+    app.MapWorkspaceAdminEndpoints();
+    // The workspace-scoped view of the Sample resource
+    // (/api/v1/workspaces/{workspaceId}/sample/notes): the worked example of a
+    // workspace-scoped resource, gated by notes:read / notes:write at the workspace.
+    app.MapWorkspaceSampleEndpoints();
     // The platform super-admin plane (cross-tenant tenant lifecycle, the
     // platform-admin roster, audited impersonation), all under /api/v1/platform
     // and gated by RequirePlatformAdmin - never a tenant role.

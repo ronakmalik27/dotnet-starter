@@ -88,6 +88,9 @@ public static class RoleAdminEndpoints
             request.Name!,
             request.Description,
             assignableAt,
+            // Tenant-owned role: workspace_id null. Workspace-local roles are
+            // created on the workspace endpoint (WorkspaceAdminEndpoints).
+            workspaceId: null,
             request.Permissions ?? [],
             cancellationToken);
         return result.Match(
@@ -185,7 +188,14 @@ public static class RoleAdminEndpoints
             return TypedResults.Problem(StarterProblems.Validation(http, errors));
         }
 
-        var result = await tenancy.AssignRoleAsync(callerId.Value, request.RoleId, request.UserId, cancellationToken);
+        var result = await tenancy.AssignRoleAsync(
+            callerId.Value,
+            request.RoleId,
+            request.UserId,
+            // The tenant control plane grants at tenant scope; scope_id is null.
+            AssignmentScopes.Tenant,
+            scopeId: null,
+            cancellationToken);
         return result.Match(
             assignmentId => (IResult)TypedResults.Created((string?)null, new AssignmentCreatedResponse(assignmentId)),
             error => TenancyProblems.From(http, error));

@@ -5,41 +5,61 @@ using Starter.Platform.Auth;
 namespace Starter.Tenancy.Rbac;
 
 /// <summary>
-/// Resolves the caller's EFFECTIVE permission set in the ACTIVE tenant at tenant
-/// scope (multi-tenancy.md section 13). Like <see cref="TenantRoleResolver"/>
-/// this is a request-path RLS read, NOT the bypass path: it opens an explicit
-/// read transaction so the tenant interceptor sets the current-tenant GUC, so
-/// every row it reads is visible only under its own tenant's GUC. It must
-/// therefore stay OUT of the bypass allowlist.
+/// Resolves the caller's EFFECTIVE permission set in the ACTIVE tenant, at tenant
+/// scope or at one workspace (multi-tenancy.md section 13). Like
+/// <see cref="TenantRoleResolver"/> this is a request-path RLS read, NOT the
+/// bypass path: it opens an explicit read transaction so the tenant interceptor
+/// sets the current-tenant GUC, so every row it reads is visible only under its
+/// own tenant's GUC. It must therefore stay OUT of the bypass allowlist.
 /// <para>
-/// The effective set is the union of (1) the permission set of the caller's
+/// The tenant-scope set is the union of (1) the permission set of the caller's
 /// ACTIVE membership's system role (owner | admin | member, from code, applied
-/// tenant-wide) and (2) every tenant-scope custom-role grant the caller holds,
-/// joined to that role's permissions. It is fail-closed: no active membership
-/// resolves to the empty set (so a suspended membership confers nothing, and a
-/// suspension takes effect on the next request), and an unresolved tenant fails
-/// closed to zero rows. Resolution is cached per request - the resolver is
-/// scoped, and the caller id is constant across a request's gate invocations.
+/// tenant-wide) and (2) every TENANT-scope custom-role grant the caller holds,
+/// joined to that role's permissions. The workspace-scope set is that same set
+/// PLUS (3) every WORKSPACE-scope grant whose scope_id equals the requested
+/// workspace. Inheritance is downward only, and it is enforced structurally: the
+/// tenant-scope query never reads workspace-scope grants, so a workspace grant
+/// can never confer anything tenant-wide; a workspace-scope grant is admitted
+/// only when its scope_id matches exactly, so it never reaches another workspace.
+/// </para>
+/// <para>
+/// It is fail-closed: no active membership resolves to the empty set (so a
+/// suspended membership confers nothing, and a suspension takes effect on the
+/// next request), and an unresolved tenant fails closed to zero rows. Resolution
+/// is cached per request keyed on (caller, scope) - the resolver is scoped, and a
+/// request resolves at most its tenant set plus one workspace set.
 /// </para>
 /// </summary>
 internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResolver
 {
-    private (Guid UserId, IReadOnlySet<string> Permissions)? _cache;
+    // Cache key: (caller, workspace). A null workspace is the tenant-scope set; a
+    // non-null workspace is that workspace's set. One request touches at most two
+    // keys (tenant plus one workspace), so a small dictionary is right-sized.
+    private readonly Dictionary<(Guid UserId, Guid? WorkspaceId), IReadOnlySet<string>> _cache = new();
 
-    public async Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
-        Guid userId, CancellationToken cancellationToken)
+    public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid userId, CancellationToken cancellationToken) =>
+        GetAsync(userId, workspaceId: null, cancellationToken);
+
+    public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid userId, Guid workspaceId, CancellationToken cancellationToken) =>
+        GetAsync(userId, workspaceId, cancellationToken);
+
+    private async Task<IReadOnlySet<string>> GetAsync(
+        Guid userId, Guid? workspaceId, CancellationToken cancellationToken)
     {
-        if (_cache is { } cached && cached.UserId == userId)
+        if (_cache.TryGetValue((userId, workspaceId), out var cached))
         {
-            return cached.Permissions;
+            return cached;
         }
 
-        var permissions = await ResolveAsync(userId, cancellationToken);
-        _cache = (userId, permissions);
+        var permissions = await ResolveAsync(userId, workspaceId, cancellationToken);
+        _cache[(userId, workspaceId)] = permissions;
         return permissions;
     }
 
-    private async Task<IReadOnlySet<string>> ResolveAsync(Guid userId, CancellationToken cancellationToken)
+    private async Task<IReadOnlySet<string>> ResolveAsync(
+        Guid userId, Guid? workspaceId, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -61,7 +81,8 @@ internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResol
 
         var permissions = new HashSet<string>(StringComparer.Ordinal);
 
-        // (1) The system-role permission set, applied tenant-wide.
+        // (1) The system-role permission set, applied tenant-wide (so it inherits
+        // into every workspace).
         if (MembershipRoles.ToTenantRole(role) is { } tenantRole)
         {
             foreach (var permission in SystemRolePermissions.For(tenantRole))
@@ -70,9 +91,11 @@ internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResol
             }
         }
 
-        // (2) The caller's tenant-scope custom-role grants, unioned with the
-        // permissions of each granted role. principal_type = user this increment.
-        var granted = await (
+        // (2) The caller's TENANT-scope custom-role grants, unioned with the
+        // permissions of each granted role. These apply tenant-wide, so they are
+        // included at tenant scope AND at every workspace (downward inheritance).
+        // principal_type = user this increment.
+        var tenantGrants = await (
             from assignment in db.RoleAssignments.AsNoTracking()
             where assignment.PrincipalType == PrincipalType.User
                 && assignment.PrincipalId == userId
@@ -82,9 +105,33 @@ internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResol
             select permission.Permission)
             .ToListAsync(cancellationToken);
 
-        foreach (var permission in granted)
+        foreach (var permission in tenantGrants)
         {
             permissions.Add(permission);
+        }
+
+        // (3) WORKSPACE-scope grants, admitted ONLY for the requested workspace
+        // (scope_id == workspaceId). This is the sole place a workspace grant
+        // enters the set, and it never enters the tenant-scope set above, so a
+        // workspace grant confers nothing tenant-wide and nothing in any other
+        // workspace (no upward inheritance).
+        if (workspaceId is Guid scope)
+        {
+            var workspaceGrants = await (
+                from assignment in db.RoleAssignments.AsNoTracking()
+                where assignment.PrincipalType == PrincipalType.User
+                    && assignment.PrincipalId == userId
+                    && assignment.ScopeType == AssignmentScope.Workspace
+                    && assignment.ScopeId == scope
+                join permission in db.RolePermissions.AsNoTracking()
+                    on assignment.RoleId equals permission.RoleId
+                select permission.Permission)
+                .ToListAsync(cancellationToken);
+
+            foreach (var permission in workspaceGrants)
+            {
+                permissions.Add(permission);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken);

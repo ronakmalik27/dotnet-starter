@@ -33,6 +33,7 @@ internal sealed class CustomRoleService(
         string name,
         string? description,
         string assignableAt,
+        Guid? workspaceId,
         IReadOnlyCollection<string> permissions,
         CancellationToken cancellationToken)
     {
@@ -63,6 +64,18 @@ internal sealed class CustomRoleService(
                 ErrorKind.Validation, "tenancy.role_assignable_at_invalid", "assignableAt must be tenant, workspace, or both."));
         }
 
+        // A workspace-local role (workspace_id set) is defined by a workspace
+        // admin and is assignable ONLY in its own workspace (section 15), so its
+        // only sensible assignable scope is 'workspace'. Refuse a mismatch rather
+        // than silently coercing it.
+        if (workspaceId is not null && assignableAt != RoleAssignableAt.Workspace)
+        {
+            return Result.Failure<Guid>(new Error(
+                ErrorKind.Validation,
+                "tenancy.workspace_role_assignable",
+                "A workspace-local role must be assignable at workspace scope only."));
+        }
+
         var distinctPermissions = Distinct(permissions);
         if (ValidatePermissions(distinctPermissions) is { } permissionError)
         {
@@ -72,11 +85,26 @@ internal sealed class CustomRoleService(
         var now = clock.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        // Tenant-owned roles only this increment, so the duplicate check is on
-        // (tenant, workspace=null, key); the unique index is the race backstop.
+        // A workspace-local role must name a workspace that exists in this tenant
+        // (RLS-scoped read). The endpoint's RequireWorkspace gate already checked
+        // this; the service re-checks so the business rule holds for any caller.
+        if (workspaceId is Guid ws)
+        {
+            var workspaceExists = await db.Workspaces
+                .AsNoTracking()
+                .AnyAsync(workspace => workspace.Id == ws, cancellationToken);
+            if (!workspaceExists)
+            {
+                return Result.Failure<Guid>(WorkspaceNotFound);
+            }
+        }
+
+        // A key is unique within its owning scope: (tenant, workspace_id, key).
+        // The pre-check keys on the same workspace_id as the new row (null for a
+        // tenant-owned role); the unique index is the race backstop.
         var duplicate = await db.Roles
             .AsNoTracking()
-            .AnyAsync(role => role.WorkspaceId == null && role.Key == key, cancellationToken);
+            .AnyAsync(role => role.WorkspaceId == workspaceId && role.Key == key, cancellationToken);
         if (duplicate)
         {
             return Result.Failure<Guid>(RoleKeyTaken);
@@ -90,7 +118,7 @@ internal sealed class CustomRoleService(
             Name = name,
             Description = description,
             AssignableAt = assignableAt,
-            WorkspaceId = null,
+            WorkspaceId = workspaceId,
             CreatedBy = callerUserId,
             CreatedAt = now,
         };
@@ -121,12 +149,23 @@ internal sealed class CustomRoleService(
         return Result.Success(roleRow.Id);
     }
 
-    public async Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
-        ListRolesAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
+        ListRolesAsync(CancellationToken cancellationToken) =>
+        // The tenant roster is the tenant-OWNED roles (workspace_id null); a
+        // workspace-local role is listed in its own workspace (section 15).
+        ListRolesAsync(workspaceId: null, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
+        ListWorkspaceRolesAsync(Guid workspaceId, CancellationToken cancellationToken) =>
+        ListRolesAsync(workspaceId, cancellationToken);
+
+    private async Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
+        ListRolesAsync(Guid? workspaceId, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var rows = await db.Roles
             .AsNoTracking()
+            .Where(role => role.WorkspaceId == workspaceId)
             .OrderBy(role => role.CreatedAt)
             .ThenBy(role => role.Id)
             .Select(role => new
@@ -301,8 +340,28 @@ internal sealed class CustomRoleService(
         Guid callerUserId,
         Guid roleId,
         Guid principalUserId,
+        string scopeType,
+        Guid? scopeId,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(scopeType);
+
+        if (scopeType is not (AssignmentScope.Tenant or AssignmentScope.Workspace))
+        {
+            return Result.Failure<Guid>(new Error(
+                ErrorKind.Validation, "tenancy.scope_invalid", "scopeType must be tenant or workspace."));
+        }
+
+        // A workspace-scope grant must name the workspace; a tenant-scope grant
+        // must not (scope_id is null for tenant scope).
+        if (scopeType == AssignmentScope.Workspace && scopeId is null)
+        {
+            return Result.Failure<Guid>(new Error(
+                ErrorKind.Validation, "tenancy.scope_id_required", "A workspace-scope grant requires a scopeId."));
+        }
+
+        var normalizedScopeId = scopeType == AssignmentScope.Workspace ? scopeId : null;
+
         var now = clock.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -314,14 +373,41 @@ internal sealed class CustomRoleService(
             return Result.Failure<Guid>(RoleNotFound);
         }
 
-        // The scope must be one the role author allowed (tenant scope only this
-        // increment); a role that is workspace-only cannot be granted tenant-wide.
-        if (!RoleAssignableAt.Allows(role.AssignableAt, AssignmentScope.Tenant))
+        // A workspace-LOCAL role (workspace_id set) can ONLY be granted at its own
+        // workspace (section 13): reject a tenant-scope grant and a grant at any
+        // other workspace, so a role can never be bound wider than its author
+        // intended. This is checked before the assignable-scope rule so the
+        // message is specific to the scope-mismatch case.
+        if (role.WorkspaceId is Guid roleWorkspace
+            && (scopeType != AssignmentScope.Workspace || normalizedScopeId != roleWorkspace))
+        {
+            return Result.Failure<Guid>(new Error(
+                ErrorKind.Validation,
+                "tenancy.workspace_role_scope",
+                "A workspace-local role can only be assigned at its own workspace."));
+        }
+
+        // The scope must be one the role author allowed (its assignable_at).
+        if (!RoleAssignableAt.Allows(role.AssignableAt, scopeType))
         {
             return Result.Failure<Guid>(new Error(
                 ErrorKind.Validation,
                 "tenancy.scope_not_assignable",
-                "This role cannot be assigned at tenant scope."));
+                $"This role cannot be assigned at {scopeType} scope."));
+        }
+
+        // A workspace-scope grant must name a workspace that exists in this tenant
+        // (RLS-scoped read); the endpoint's RequireWorkspace gate already checked
+        // it, but the service holds the rule for any caller.
+        if (scopeType == AssignmentScope.Workspace)
+        {
+            var workspaceExists = await db.Workspaces
+                .AsNoTracking()
+                .AnyAsync(workspace => workspace.Id == normalizedScopeId, cancellationToken);
+            if (!workspaceExists)
+            {
+                return Result.Failure<Guid>(WorkspaceNotFound);
+            }
         }
 
         // The principal must be an active member of the tenant (RLS-scoped read).
@@ -345,7 +431,8 @@ internal sealed class CustomRoleService(
                 assignment => assignment.PrincipalType == PrincipalType.User
                     && assignment.PrincipalId == principalUserId
                     && assignment.RoleId == roleId
-                    && assignment.ScopeType == AssignmentScope.Tenant,
+                    && assignment.ScopeType == scopeType
+                    && assignment.ScopeId == normalizedScopeId,
                 cancellationToken);
         if (alreadyAssigned)
         {
@@ -359,8 +446,8 @@ internal sealed class CustomRoleService(
             PrincipalType = PrincipalType.User,
             PrincipalId = principalUserId,
             RoleId = roleId,
-            ScopeType = AssignmentScope.Tenant,
-            ScopeId = null,
+            ScopeType = scopeType,
+            ScopeId = normalizedScopeId,
             GrantedBy = callerUserId,
             CreatedAt = now,
         };
@@ -409,12 +496,31 @@ internal sealed class CustomRoleService(
         return Result.Success();
     }
 
-    public async Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
-        ListAssignmentsAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+        ListAssignmentsAsync(CancellationToken cancellationToken) =>
+        // The tenant roster lists every assignment (tenant- and workspace-scoped)
+        // so an admin sees the full grant picture.
+        ListAssignmentsAsync(workspaceId: null, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+        ListWorkspaceAssignmentsAsync(Guid workspaceId, CancellationToken cancellationToken) =>
+        ListAssignmentsAsync(workspaceId, cancellationToken);
+
+    private async Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+        ListAssignmentsAsync(Guid? workspaceId, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var rows = await db.RoleAssignments
-            .AsNoTracking()
+        var query = db.RoleAssignments.AsNoTracking();
+
+        // A workspace listing is only that workspace's grants (scope_type =
+        // workspace, scope_id = the workspace); a null filter is the full roster.
+        if (workspaceId is Guid scope)
+        {
+            query = query.Where(
+                assignment => assignment.ScopeType == AssignmentScope.Workspace && assignment.ScopeId == scope);
+        }
+
+        var rows = await query
             .OrderBy(assignment => assignment.CreatedAt)
             .ThenBy(assignment => assignment.Id)
             .Select(assignment => new
@@ -440,6 +546,9 @@ internal sealed class CustomRoleService(
 
     private static readonly Error RoleNotFound = new(
         ErrorKind.NotFound, "tenancy.role_not_found", "No such custom role.");
+
+    private static readonly Error WorkspaceNotFound = new(
+        ErrorKind.NotFound, "tenancy.workspace_not_found", "No such workspace.");
 
     private static readonly Error RoleKeyTaken = new(
         ErrorKind.Conflict, "tenancy.role_key_taken", "A role with that key already exists.");

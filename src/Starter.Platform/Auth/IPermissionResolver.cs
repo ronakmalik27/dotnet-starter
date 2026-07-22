@@ -25,4 +25,18 @@ public interface IPermissionResolver
     /// membership there. Resolution is per request and cached per request.
     /// </summary>
     Task<IReadOnlySet<string>> GetCallerPermissionsAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The caller's effective permissions in the active tenant AT A WORKSPACE
+    /// (multi-tenancy.md section 13): the tenant-scope set above PLUS every
+    /// workspace-scope grant whose scope is exactly <paramref name="workspaceId"/>.
+    /// Inheritance is downward only - a tenant-scope grant reaches every workspace,
+    /// while a workspace-scope grant applies only in its own workspace and never
+    /// confers anything tenant-wide. Same fail-closed, active-membership-only,
+    /// request-path RLS discipline as the tenant-scope path; cached per request
+    /// per workspace, so one request can resolve its tenant set and one workspace
+    /// set without re-reading.
+    /// </summary>
+    Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid userId, Guid workspaceId, CancellationToken cancellationToken);
 }

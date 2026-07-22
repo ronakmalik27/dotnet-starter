@@ -76,6 +76,7 @@ public static class TenancyModule
         services.AddScoped<TenantRoleResolver>();
         services.AddScoped<PermissionResolver>();
         services.AddScoped<CustomRoleService>();
+        services.AddScoped<WorkspaceService>();
         services.AddScoped<TenantAdminService>();
 
         services.AddScoped<ITenancyApi, TenancyApi>();
@@ -91,6 +92,12 @@ public static class TenancyModule
         // drift, and the platform never references this module.
         services.AddScoped<IPermissionResolver>(
             provider => provider.GetRequiredService<PermissionResolver>());
+
+        // Bridge the platform-declared workspace-reader port (used by the
+        // RequireWorkspace gate) to the request-path workspace service, so the
+        // gate's existence check is the same RLS-bound read as the CRUD surface.
+        services.AddScoped<IWorkspaceReader>(
+            provider => provider.GetRequiredService<WorkspaceService>());
 
         // Bridge the platform-declared impersonation-guard port (used by the
         // per-request guard middleware in the platform) to the bypass-path grant

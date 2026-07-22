@@ -9,12 +9,12 @@ namespace Starter.Tenancy.Domain;
 /// tenancy.memberships.role, so cross-cutting system power is never handed out
 /// through a scoped grant. Tenant-owned, under the tenant RLS.
 /// <para>
-/// This increment supports the user principal at tenant scope only; the
-/// principal_type and scope_type columns (and the nullable scope_id) are present
-/// for the forward-compatible team and workspace increments. Uniqueness is a
-/// partial unique index per scope kind (one WHERE scope_type = 'tenant', one for
-/// workspace scope including scope_id), because a null scope_id would not
-/// collide under a plain unique constraint.
+/// A grant is at tenant scope (scope_id null, applies tenant-wide) or at one
+/// workspace (scope_id = the workspace). Only the user principal is supported;
+/// the principal_type column is present for the forward-compatible team
+/// increment. Uniqueness is a partial unique index per scope kind (one WHERE
+/// scope_type = 'tenant', one for workspace scope including scope_id), because a
+/// null scope_id would not collide under a plain unique constraint.
 /// </para>
 /// </summary>
 internal sealed class RoleAssignment : ITenantOwned
@@ -32,10 +32,10 @@ internal sealed class RoleAssignment : ITenantOwned
     /// <summary>The custom role granted. FK role_id -> roles(id).</summary>
     public required Guid RoleId { get; init; }
 
-    /// <summary>One of tenant | workspace (stored as a string). Only tenant this increment.</summary>
+    /// <summary>One of tenant | workspace (stored as a string).</summary>
     public required string ScopeType { get; init; }
 
-    /// <summary>Null for tenant scope, else the workspace id. Always null this increment.</summary>
+    /// <summary>Null for tenant scope, else the workspace id the grant is scoped to.</summary>
     public Guid? ScopeId { get; init; }
 
     /// <summary>The user who created the grant. A bare id by value, no cross-schema FK.</summary>

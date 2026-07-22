@@ -32,6 +32,10 @@ internal static class TenancyProblems
             http, ProblemTypes.TenantRoleKeyTaken, "That role key is already taken.", error.Message),
         "tenancy.role_in_use" => Conflict(
             http, ProblemTypes.TenantRoleInUse, "The role is in use and cannot be deleted.", error.Message),
+        "tenancy.workspace_slug_taken" => Conflict(
+            http, ProblemTypes.WorkspaceSlugTaken, "That workspace slug is already taken.", error.Message),
+        "tenancy.workspace_not_found" => NotFound(
+            http, ProblemTypes.WorkspaceNotFound, "The workspace does not exist.", error.Message),
         _ => error.ToProblemResult(http),
     };
 

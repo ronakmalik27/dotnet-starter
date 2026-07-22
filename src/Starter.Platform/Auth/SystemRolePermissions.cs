@@ -13,10 +13,10 @@ namespace Starter.Platform.Auth;
 /// <c>RequirePermission</c> changes the mechanism, not who is allowed.
 /// <list type="bullet">
 ///   <item><b>Member</b>: the reads a Part I member had (the member roster and
-///   seats) plus own-resource note capabilities.</item>
+///   seats), own-resource note capabilities, and viewing workspaces.</item>
 ///   <item><b>Admin</b>: everything a member has, plus member management,
-///   invitations, settings, and custom-role authoring - the full Part I admin
-///   surface.</item>
+///   invitations, settings, custom-role authoring, and workspace management -
+///   the full Part I admin surface plus creating/archiving workspaces.</item>
 ///   <item><b>Owner</b>: everything an admin has, plus the owner-reserved
 ///   capabilities (rename, delete, ownership transfer) that are never grantable
 ///   through a custom role.</item>
@@ -33,6 +33,8 @@ public static class SystemRolePermissions
         Permissions.NotesRead,
         Permissions.NotesWrite,
         Permissions.NotesDelete,
+        // Viewing workspaces is a member-level read (multi-tenancy.md section 12).
+        Permissions.WorkspacesRead,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> AdminSet = MemberSet
@@ -42,6 +44,9 @@ public static class SystemRolePermissions
             Permissions.InvitationsManage,
             Permissions.SettingsManage,
             Permissions.RolesManage,
+            // Creating and archiving workspaces is admin work (section 12); Owner
+            // inherits it as a strict superset of Admin below.
+            Permissions.WorkspacesManage,
         ])
         .ToFrozenSet(StringComparer.Ordinal);
 

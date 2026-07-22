@@ -214,6 +214,78 @@ internal static class TenancyEvents
         };
 
     /// <summary>
+    /// tenancy.workspace.created: a new workspace scope was created inside the
+    /// tenant. Actor is the creator; the coarse slug rides the payload.
+    /// </summary>
+    public static DomainEventRecord WorkspaceCreated(
+        Guid workspaceId,
+        string slug,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.workspace.created",
+            EntityId = workspaceId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { slug }, Json),
+        };
+
+    /// <summary>tenancy.workspace.renamed: an admin renamed a workspace.</summary>
+    public static DomainEventRecord WorkspaceRenamed(
+        Guid workspaceId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.workspace.renamed",
+            EntityId = workspaceId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.workspace.archived: an admin archived a workspace (active ->
+    /// archived), so its resources go read-only and its scoped grants stop
+    /// conferring access, but nothing is destroyed (section 20, reversible).
+    /// </summary>
+    public static DomainEventRecord WorkspaceArchived(
+        Guid workspaceId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.workspace.archived",
+            EntityId = workspaceId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.workspace.unarchived: an admin reactivated an archived workspace
+    /// (archived -> active), so its resources are writable again and its scoped
+    /// grants confer once more (section 20 - archive is reversible).
+    /// </summary>
+    public static DomainEventRecord WorkspaceUnarchived(
+        Guid workspaceId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.workspace.unarchived",
+            EntityId = workspaceId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
     /// tenancy.role.created: a tenant admin authored a custom role. Actor is the
     /// author; the coarse role key rides the payload (never any permission-set
     /// detail beyond the key).

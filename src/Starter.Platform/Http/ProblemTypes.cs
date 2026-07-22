@@ -95,6 +95,33 @@ public static class ProblemTypes
     public const string TenantRoleKeyTaken = "starter:tenant-role-key-taken";
 
     /// <summary>
+    /// 404: the request named a workspace that does not exist under the active
+    /// tenant (multi-tenancy.md section 12). Because a workspace row is
+    /// tenant-owned under RLS, a workspaceId from another tenant is invisible and
+    /// collapses to this same answer, so the workspace-scoped surface never
+    /// confirms a workspace exists in a tenant the caller cannot see. Deliberately
+    /// 404, not 403: 403 (permission-required) is for a workspace that DOES exist
+    /// but where the caller lacks the permission.
+    /// </summary>
+    public const string WorkspaceNotFound = "starter:workspace-not-found";
+
+    /// <summary>
+    /// 409: self-serve or admin workspace creation asked for a slug already taken
+    /// within the tenant. A slug is caller-supplied and not a secret, so a
+    /// definite answer is fine (the citext unique index on (tenant_id, slug) is
+    /// the backstop).
+    /// </summary>
+    public const string WorkspaceSlugTaken = "starter:workspace-slug-taken";
+
+    /// <summary>
+    /// 409: the workspace is archived, so a write to a resource inside it is
+    /// refused (multi-tenancy.md section 20 - an archived workspace is read-only).
+    /// Reads stay served; only mutating workspace-scoped routes carry the gate.
+    /// Unarchiving the workspace (a tenant-scope management op) lifts it.
+    /// </summary>
+    public const string WorkspaceArchived = "starter:workspace-archived";
+
+    /// <summary>
     /// 409: the custom role has assignments, so it cannot be deleted; its grants
     /// must be revoked or reassigned first, so access never silently vanishes or
     /// dangles.

@@ -159,6 +159,42 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 404 for a workspace-scoped request that named a workspace absent from the
+    /// active tenant (multi-tenancy.md section 12). A cross-tenant workspaceId is
+    /// invisible under RLS and lands here too, so the answer never confirms a
+    /// workspace exists in another tenant.
+    /// </summary>
+    public static ProblemDetails WorkspaceNotFound(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status404NotFound,
+            ProblemTypes.WorkspaceNotFound,
+            "The workspace does not exist.",
+            "No workspace with that id exists in this tenant.");
+    }
+
+    /// <summary>
+    /// 409 for a write to a resource inside an archived workspace
+    /// (multi-tenancy.md section 20). An archived workspace is read-only, so
+    /// mutating workspace-scoped routes refuse it; reads stay served, and
+    /// unarchiving the workspace lifts the block.
+    /// </summary>
+    public static ProblemDetails WorkspaceArchived(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status409Conflict,
+            ProblemTypes.WorkspaceArchived,
+            "The workspace is archived.",
+            "This workspace is archived and read-only; unarchive it to make changes.");
+    }
+
+    /// <summary>
     /// 403 for an authenticated caller who is not a platform super-admin hitting
     /// a platform control-plane endpoint (multi-tenancy.md section 7). Platform
     /// power is membership of platform.platform_admins, never a tenant role.

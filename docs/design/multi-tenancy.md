@@ -672,9 +672,9 @@ super-admin portal are frontend UI built over those APIs.
   export (the data-portability and erasure path, section 21). Suspending stops
   new access at once; existing short tokens age out within the access window.
 - **Workspace.** Onboard by create (section 12). Offboard by archive
-  (`active -> archived`): its resources go read-only and its scoped grants stop
-  conferring access, but nothing is destroyed until an explicit purge, so an
-  archive is reversible.
+  (`active -> archived`): its resources become read-only (workspace-scoped writes
+  are refused with a stable problem) and no new resources or grants can be created
+  in it, while reads still work; nothing is destroyed, so unarchive restores it.
 - **Team.** Onboard by create, then add and remove members. Offboard by delete,
   which first removes the team's `role_assignments` so no dangling grant survives.
 - **Person (membership).** Onboard by invite and accept, or as a self-serve

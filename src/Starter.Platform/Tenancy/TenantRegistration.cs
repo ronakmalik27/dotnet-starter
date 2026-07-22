@@ -28,6 +28,14 @@ public static class TenantRegistration
         services.AddScoped<TenantContext>();
         services.AddScoped<ITenantContext>(provider => provider.GetRequiredService<TenantContext>());
 
+        // The request-scoped workspace context (multi-tenancy.md section 12): the
+        // concrete WorkspaceContext and its IWorkspaceContext view resolve to the
+        // same scoped instance, so the RequireWorkspace gate binds it and every
+        // tenant-owned write in the scope reads it. Unresolved by default, so a
+        // tenant-level request stamps a null workspace_id.
+        services.AddScoped<WorkspaceContext>();
+        services.AddScoped<IWorkspaceContext>(provider => provider.GetRequiredService<WorkspaceContext>());
+
         var resolution = services.AddOptions<TenantResolutionOptions>()
             .ValidateDataAnnotations()
             .ValidateOnStart();

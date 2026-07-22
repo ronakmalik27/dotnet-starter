@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Starter.Platform.Paging;
+using Starter.Platform.Tenancy;
 using Starter.SharedKernel;
 
 namespace Starter.Sample.ListNotes;
@@ -15,8 +16,17 @@ namespace Starter.Sample.ListNotes;
 /// fail-closed: zero rows). Owner scoping is layered on top of the tenant
 /// boundary, so the list is intrinsically the caller's own notes within the
 /// active tenant.
+/// <para>
+/// It is also the worked example of a WORKSPACE-scoped list (multi-tenancy.md
+/// section 12): when the request is on a workspace route (RequireWorkspace bound
+/// the workspace context), the list is filtered to that workspace's notes, so
+/// workspace A never shows workspace B's notes. A tenant-level list (no workspace
+/// bound) is unfiltered by workspace, so it spans every workspace the owner has
+/// notes in - the tenant admin's across-workspaces view. The tenant boundary
+/// (RLS) sits underneath both, so another tenant's notes are invisible regardless.
+/// </para>
 /// </summary>
-internal sealed class ListNotesHandler(SampleDbContext db)
+internal sealed class ListNotesHandler(SampleDbContext db, IWorkspaceContext workspace)
 {
     public async Task<Result<(IReadOnlyList<(Guid Id, string Title, string Body, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)> Items, string? NextCursor)>>
         HandleAsync(Guid ownerUserId, int limit, string? cursor, CancellationToken cancellationToken)
@@ -42,6 +52,14 @@ internal sealed class ListNotesHandler(SampleDbContext db)
         var query = db.Notes
             .AsNoTracking()
             .Where(note => note.OwnerUserId == ownerUserId);
+
+        // Workspace filter (multi-tenancy.md section 12): a workspace-scoped list
+        // shows only that workspace's notes; a tenant-level list is unfiltered by
+        // workspace (spans all of them). RLS still bounds every row to the tenant.
+        if (workspace.WorkspaceId is Guid workspaceId)
+        {
+            query = query.Where(note => note.WorkspaceId == workspaceId);
+        }
 
         if (after is { } key)
         {

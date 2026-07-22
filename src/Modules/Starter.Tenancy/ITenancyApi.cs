@@ -210,19 +210,72 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result<(Guid TenantId, string Role)>> AcceptInvitationAsync(
         Guid userId, string token, CancellationToken cancellationToken);
 
+    // --- Workspaces (active tenant, request path under RLS) ---------------
+    // A workspace is a scope INSIDE the tenant (multi-tenancy.md section 12),
+    // tenant-owned under RLS. Workspace CRUD is gated at TENANT scope
+    // (RequirePermission workspaces:read / workspaces:manage); the workspace-
+    // scoped RBAC and resource operations below are gated at WORKSPACE scope.
+
+    /// <summary>
+    /// True when <paramref name="workspaceId"/> is visible under the active
+    /// tenant's RLS (multi-tenancy.md section 12). Backs the RequireWorkspace
+    /// gate: a cross-tenant workspace is invisible and reads as false, so the gate
+    /// answers 404 rather than confirming it exists elsewhere.
+    /// </summary>
+    Task<bool> WorkspaceExistsAsync(Guid workspaceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a workspace (workspaces:manage). Validates the slug and name and
+    /// refuses a duplicate slug within the tenant (Conflict
+    /// tenancy.workspace_slug_taken). Returns the new workspace id.
+    /// </summary>
+    Task<Result<Guid>> CreateWorkspaceAsync(
+        Guid callerUserId, string slug, string name, CancellationToken cancellationToken);
+
+    /// <summary>Lists the active tenant's workspaces (workspaces:read): id, slug, name, status, created-at.</summary>
+    Task<IReadOnlyList<(Guid Id, string Slug, string Name, string Status, DateTimeOffset CreatedAt)>>
+        ListWorkspacesAsync(CancellationToken cancellationToken);
+
+    /// <summary>Gets one workspace (workspaces:read). Unknown id is a NotFound (tenancy.workspace_not_found).</summary>
+    Task<Result<(Guid Id, string Slug, string Name, string Status, DateTimeOffset CreatedAt)>>
+        GetWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken);
+
+    /// <summary>Renames a workspace (workspaces:manage). Unknown id is a NotFound.</summary>
+    Task<Result> RenameWorkspaceAsync(
+        Guid callerUserId, Guid workspaceId, string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Archives a workspace (workspaces:manage): active -> archived, reversible,
+    /// nothing destroyed (section 20). Its resources become read-only (mutating
+    /// workspace-scoped routes 409). Idempotent - an already-archived workspace is
+    /// a benign success. Unknown id is a NotFound.
+    /// </summary>
+    Task<Result> ArchiveWorkspaceAsync(Guid callerUserId, Guid workspaceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Unarchives a workspace (workspaces:manage): archived -> active, so its
+    /// resources are writable again (section 20 - archive is reversible).
+    /// Idempotent - an already-active workspace is a benign success. Unknown id is
+    /// a NotFound.
+    /// </summary>
+    Task<Result> UnarchiveWorkspaceAsync(Guid callerUserId, Guid workspaceId, CancellationToken cancellationToken);
+
     // --- Custom roles and assignments (active tenant, request path under RLS) ---
     // The scoped-RBAC control plane (multi-tenancy.md sections 13, 15). Every
-    // command below operates on the ACTIVE tenant; the endpoint gates each with
-    // RequireTenant + RequirePermission("roles:manage") before it runs.
-    // GetCallerPermissionsAsync (the RequirePermission gate's own read) is
-    // inherited from IPermissionResolver. Custom roles are tenant-scoped only
-    // this increment (workspace_id null, tenant-scope assignments).
+    // command below operates on the ACTIVE tenant. Tenant-scope operations are
+    // gated by RequirePermission("roles:manage"); workspace-scope operations by
+    // RequireWorkspace + the workspace-scoped RequirePermission("roles:manage").
+    // GetCallerPermissionsAsync (the gate's own read) is inherited from
+    // IPermissionResolver, at tenant and at workspace scope.
 
     /// <summary>
     /// Creates a custom role from a subset of the permission catalogue (roles:manage).
-    /// Refuses an unknown or owner-reserved permission (Validation) and a duplicate
-    /// (tenant, workspace=null, key) (Conflict tenancy.role_key_taken). Returns the
-    /// new role id. <paramref name="assignableAt"/> is tenant | workspace | both.
+    /// A null <paramref name="workspaceId"/> creates a tenant-owned role; a set value
+    /// creates a WORKSPACE-LOCAL role in that workspace (assignableAt must be
+    /// "workspace", the workspace must exist). Refuses an unknown or owner-reserved
+    /// permission (Validation) and a duplicate (tenant, workspace_id, key) (Conflict
+    /// tenancy.role_key_taken). Returns the new role id. <paramref name="assignableAt"/>
+    /// is tenant | workspace | both.
     /// </summary>
     Task<Result<Guid>> CreateRoleAsync(
         Guid callerUserId,
@@ -230,12 +283,17 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
         string name,
         string? description,
         string assignableAt,
+        Guid? workspaceId,
         IReadOnlyCollection<string> permissions,
         CancellationToken cancellationToken);
 
-    /// <summary>Lists the active tenant's custom roles (roles:manage): id, key, name, description, assignableAt, created-at.</summary>
+    /// <summary>Lists the active tenant's tenant-owned custom roles (roles:manage): id, key, name, description, assignableAt, created-at.</summary>
     Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
         ListRolesAsync(CancellationToken cancellationToken);
+
+    /// <summary>Lists a workspace's workspace-local custom roles (roles:manage at that workspace).</summary>
+    Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
+        ListWorkspaceRolesAsync(Guid workspaceId, CancellationToken cancellationToken);
 
     /// <summary>Gets one custom role and its permissions (roles:manage). Unknown id is a NotFound (tenancy.role_not_found).</summary>
     Task<Result<(Guid Id, string Key, string Name, string? Description, string AssignableAt, IReadOnlyList<string> Permissions, DateTimeOffset CreatedAt)>>
@@ -263,17 +321,30 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result> DeleteRoleAsync(Guid callerUserId, Guid roleId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Assigns a custom role to a user at TENANT scope (roles:manage). Validates the
-    /// role allows tenant-scope assignment and the principal is an active member.
-    /// Returns the new assignment id. A duplicate grant is a Conflict.
+    /// Assigns a custom role to a user at a scope (roles:manage at that scope).
+    /// <paramref name="scopeType"/> is tenant | workspace; <paramref name="scopeId"/>
+    /// is null for tenant scope, else the workspace id. Validates that the role's
+    /// assignable_at allows the scope, that a workspace-local role is assigned only
+    /// at its own workspace (else Validation tenancy.workspace_role_scope), that a
+    /// named workspace exists, and that the principal is an active member. Returns
+    /// the new assignment id. A duplicate grant at the same scope is a Conflict.
     /// </summary>
     Task<Result<Guid>> AssignRoleAsync(
-        Guid callerUserId, Guid roleId, Guid principalUserId, CancellationToken cancellationToken);
+        Guid callerUserId,
+        Guid roleId,
+        Guid principalUserId,
+        string scopeType,
+        Guid? scopeId,
+        CancellationToken cancellationToken);
 
     /// <summary>Revokes a role assignment by id (roles:manage). Unknown id is a NotFound.</summary>
     Task<Result> RevokeAssignmentAsync(Guid callerUserId, Guid assignmentId, CancellationToken cancellationToken);
 
-    /// <summary>Lists the active tenant's role assignments (roles:manage).</summary>
+    /// <summary>Lists the active tenant's role assignments across all scopes (roles:manage).</summary>
     Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
         ListAssignmentsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Lists a workspace's role assignments (roles:manage at that workspace).</summary>
+    Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+        ListWorkspaceAssignmentsAsync(Guid workspaceId, CancellationToken cancellationToken);
 }

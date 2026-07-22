@@ -11,10 +11,10 @@ namespace Starter.Tenancy.Domain;
 /// <para>
 /// A role records WHERE it may be assigned (<see cref="AssignableAt"/>: tenant |
 /// workspace | both) and, when it is workspace-local, which workspace owns it
-/// (<see cref="WorkspaceId"/>). This increment is tenant-scoped only, so
-/// <see cref="WorkspaceId"/> is always null; the column is present for the
-/// forward-compatible workspace increment. Unique on
-/// (tenant_id, workspace_id, key), so a key is unique within its owning scope.
+/// (<see cref="WorkspaceId"/>): null for a tenant-owned role visible across the
+/// tenant, a set value for a workspace-local role defined and assignable only in
+/// that workspace (section 15). Unique on (tenant_id, workspace_id, key), so a
+/// key is unique within its owning scope.
 /// </para>
 /// </summary>
 internal sealed class CustomRole : ITenantOwned
@@ -36,8 +36,8 @@ internal sealed class CustomRole : ITenantOwned
     public required string AssignableAt { get; init; }
 
     /// <summary>
-    /// Null for a tenant-owned role, set for a workspace-local one. Always null
-    /// this increment (present for forward-compat with the workspace increment).
+    /// Null for a tenant-owned role, set for a workspace-local one (the workspace
+    /// that owns it and the only scope it may be assigned at, section 15).
     /// </summary>
     public Guid? WorkspaceId { get; init; }
 

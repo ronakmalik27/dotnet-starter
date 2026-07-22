@@ -29,6 +29,8 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
 
     public DbSet<Invitation> Invitations => Set<Invitation>();
 
+    public DbSet<Workspace> Workspaces => Set<Workspace>();
+
     public DbSet<CustomRole> Roles => Set<CustomRole>();
 
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
@@ -77,6 +79,17 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
             // The pending-list and duplicate-invite checks key on (tenant, email).
             invitation.HasIndex(i => new { i.TenantId, i.Email });
             ApplyTenantFilter(invitation);
+        });
+
+        modelBuilder.Entity<Workspace>(workspace =>
+        {
+            // citext slug, unique per tenant - the same case-insensitive scheme
+            // tenancy.tenants uses, so "Prod" and "prod" collide within a tenant
+            // and no lookup can forget to normalize.
+            workspace.Property(w => w.Slug).HasColumnType("citext");
+            workspace.Property(w => w.Status).HasMaxLength(16);
+            workspace.HasIndex(w => new { w.TenantId, w.Slug }).IsUnique();
+            ApplyTenantFilter(workspace);
         });
 
         modelBuilder.Entity<CustomRole>(role =>

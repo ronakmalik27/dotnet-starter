@@ -26,7 +26,8 @@ namespace Starter.Sample.CreateNote;
 /// Absent the filter, the handler owns the transaction end to end.
 /// </para>
 /// </summary>
-internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox, Clock clock, ITenantContext tenant)
+internal sealed class CreateNoteHandler(
+    SampleDbContext db, OutboxWriter outbox, Clock clock, ITenantContext tenant, IWorkspaceContext workspace)
 {
     public async Task<Result<Guid>> HandleAsync(
         Guid ownerUserId,
@@ -56,6 +57,12 @@ internal sealed class CreateNoteHandler(SampleDbContext db, OutboxWriter outbox,
             // Stamped from the tenant context, never from client input. RLS's
             // WITH CHECK rejects the INSERT if this disagrees with the GUC.
             TenantId = tenant.TenantId,
+            // Stamped from the workspace context: a workspace-scoped route bound
+            // it (RequireWorkspace), so the note is scoped to that workspace; a
+            // tenant-level create leaves it null (a tenant-wide note). A workspace
+            // is an authorization scope, not an RLS tier, so this is a plain
+            // column value, not a GUC.
+            WorkspaceId = workspace.WorkspaceId,
             OwnerUserId = ownerUserId,
             Title = title,
             Body = body,

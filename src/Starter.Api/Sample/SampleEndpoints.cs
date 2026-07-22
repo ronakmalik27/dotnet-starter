@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Starter.Api.Identity;
 using Starter.Api.Platform;
+using Starter.Api.Tenancy;
 using Starter.Sample;
 using Starter.Platform.Auth;
 using Starter.Platform.Http;
@@ -74,6 +75,48 @@ public static class SampleEndpoints
             .RequireAuthorization();
 
         return versionedGroup;
+    }
+
+    /// <summary>
+    /// The WORKSPACE-scoped view of the same resource (multi-tenancy.md section
+    /// 12), under <c>/api/v1/workspaces/{workspaceId}/sample/notes</c>. It reuses
+    /// the exact same module commands: RequireWorkspace binds the workspace, so
+    /// the create stamps <c>workspace_id</c> and the list filters on it, with no
+    /// change to <see cref="ISampleApi"/>. The gates are the difference: the
+    /// workspace routes require notes:read / notes:write AT THE WORKSPACE
+    /// (RequireWorkspacePermission), while the tenant-level routes above stay
+    /// owner-scoped only. This is the copy-me shape for a workspace-scoped
+    /// resource. Mapped on the app root (literal /api/v1) alongside the workspace
+    /// admin plane, not the versioned group, matching the other control-plane
+    /// endpoints.
+    /// </summary>
+    public static IEndpointRouteBuilder MapWorkspaceSampleEndpoints(this IEndpointRouteBuilder app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        // The group binds and validates {workspaceId} (RequireWorkspace -> 404
+        // workspace-not-found for an unknown or cross-tenant id) before any
+        // permission check, so a bad workspace is 404, a missing permission 403.
+        var workspaceNotes = app.MapGroup("/api/v1/workspaces/{workspaceId:guid}/sample/notes")
+            .RequireTenant()
+            .RequireAuthorization()
+            .RequireWorkspace();
+
+        // The read stays served even when the workspace is archived (read-only,
+        // not blocked), so it carries no RequireActiveWorkspace.
+        workspaceNotes.MapGet("/", ListNotesAsync).RequireWorkspacePermission(Permissions.NotesRead);
+        // Create is a workspace write: verify-to-write plus notes:write at the
+        // workspace, and an ACTIVE workspace (an archived workspace is read-only,
+        // section 20 -> 409). RequireActiveWorkspace runs after the permission
+        // gate, so an authorized caller gets 409 while an unauthorized one gets
+        // 403. No idempotency filter here (the tenant-level create above is the
+        // idempotency worked example); the command then owns its transaction.
+        workspaceNotes.MapPost("/", CreateNoteAsync)
+            .RequireVerifiedEmail()
+            .RequireWorkspacePermission(Permissions.NotesWrite)
+            .RequireActiveWorkspace();
+
+        return app;
     }
 
     private static async Task<IResult> ListNotesAsync(

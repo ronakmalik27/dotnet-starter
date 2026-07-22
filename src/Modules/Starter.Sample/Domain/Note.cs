@@ -12,6 +12,15 @@ namespace Starter.Sample.Domain;
 /// <see cref="IOwnedResource"/> (within that tenant it is still owned by its
 /// creator, the inner authorization check). Copy this as the starting point
 /// for a real tenant-owned module entity.
+/// <para>
+/// It is also the worked example of a WORKSPACE-scoped resource
+/// (multi-tenancy.md section 12): a nullable <see cref="WorkspaceId"/>. Null is a
+/// tenant-level note (visible tenant-wide, subject to role); a set value binds
+/// the note to that workspace. The tenant boundary (RLS) is untouched - a
+/// workspace is an authorization scope layered on top, filtered in the app, never
+/// a second RLS tier. The reference is by value, no cross-schema FK, exactly like
+/// the owner id.
+/// </para>
 /// </summary>
 internal sealed class Note : ITenantOwned, IOwnedResource
 {
@@ -19,6 +28,14 @@ internal sealed class Note : ITenantOwned, IOwnedResource
 
     /// <summary>The tenant this note belongs to. Stamped from the tenant context on create.</summary>
     public required Guid TenantId { get; init; }
+
+    /// <summary>
+    /// The workspace this note is scoped to, or null for a tenant-level note.
+    /// Stamped from the workspace context on create (null when the create is not
+    /// on a workspace route). A value reference to tenancy.workspaces, no
+    /// cross-schema FK.
+    /// </summary>
+    public Guid? WorkspaceId { get; init; }
 
     /// <summary>The user who created the note and may read or delete it.</summary>
     public required Guid OwnerUserId { get; init; }
