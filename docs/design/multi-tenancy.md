@@ -717,7 +717,7 @@ rewrite:
   [audit-log.md](audit-log.md).
 - **Outbound webhooks**: a consumer that fans domain events out to
   tenant-registered endpoints, reusing the at-least-once delivery the outbox
-  gives.
+  gives. DESIGNED and being built out - see [webhooks.md](webhooks.md).
 - **Data export and account deletion (GDPR / DSAR)**: tenant-scoped reads and a
   soft-delete-to-hard-delete lifecycle on top of the existing tenant `status`.
 - **In-app notifications, usage quotas, data residency**: notifications ride the

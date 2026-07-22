@@ -39,52 +39,18 @@ internal sealed class AuditProjectionConsumer : IDomainEventConsumer
 
     /// <summary>
     /// The tenant-scoped catalogue this projection subscribes to (audit-log.md
-    /// section 2): every event that carries a tenant_id. That is all
-    /// <c>tenancy.*</c> control-plane events, the tenant-scoped
-    /// <c>platform.impersonation.*</c> events (they carry the target tenant), and
-    /// the sample module's <c>sample.note.*</c>. The null-tenant
+    /// section 2): every event that carries a tenant_id - the shared
+    /// <see cref="DeliverableEvents.TenantScoped"/> set, so the audit projection and the
+    /// webhook fan-out can never drift. That is all <c>tenancy.*</c> control-plane
+    /// events (including the <c>tenancy.webhook.*</c> endpoint lifecycle, webhooks.md
+    /// section 8), the tenant-scoped <c>platform.impersonation.*</c> events (they carry
+    /// the target tenant), and the sample module's <c>sample.note.*</c>. The null-tenant
     /// <c>platform.admin.*</c> events are audited synchronously (section 2) and the
     /// identity user-activity events are deliberately not audited here (section 2);
     /// the catalogue-completeness test enforces that every event type is either
     /// here or in the named not-audited set.
     /// </summary>
-    public IReadOnlyCollection<string> EventTypes { get; } =
-    [
-        // tenancy.* control plane
-        "tenancy.tenant.created",
-        "tenancy.membership.created",
-        "tenancy.member.role_changed",
-        "tenancy.member.removed",
-        "tenancy.invitation.created",
-        "tenancy.invitation.revoked",
-        "tenancy.tenant.settings_updated",
-        "tenancy.ownership.transferred",
-        "tenancy.tenant.soft_deleted",
-        "tenancy.tenant.suspended",
-        "tenancy.tenant.reactivated",
-        "tenancy.workspace.created",
-        "tenancy.workspace.renamed",
-        "tenancy.workspace.archived",
-        "tenancy.workspace.unarchived",
-        "tenancy.role.created",
-        "tenancy.role.updated",
-        "tenancy.role.deleted",
-        "tenancy.role_assignment.granted",
-        "tenancy.role_assignment.revoked",
-        "tenancy.team.created",
-        "tenancy.team.renamed",
-        "tenancy.team.deleted",
-        "tenancy.team.member_added",
-        "tenancy.team.member_removed",
-        "tenancy.service_account.created",
-        "tenancy.service_account.rotated",
-        "tenancy.service_account.revoked",
-        // tenant-scoped platform events (carry the target tenant)
-        "platform.impersonation.started",
-        "platform.impersonation.ended",
-        // sample module
-        "sample.note.created",
-    ];
+    public IReadOnlyCollection<string> EventTypes => DeliverableEvents.TenantScoped;
 
     public async Task ConsumeAsync(
         IServiceProvider services,

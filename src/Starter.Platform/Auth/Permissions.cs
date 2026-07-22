@@ -64,6 +64,17 @@ public static class Permissions
     /// </summary>
     public const string ApiKeysManage = "api-keys:manage";
 
+    /// <summary>
+    /// Manage outbound webhook endpoints (webhooks.md section 7): register, list, update,
+    /// rotate the signing secret, delete, read the delivery log, and replay. In the Admin
+    /// system-role set and grantable in a custom role like any non-owner-reserved
+    /// permission. Unlike <see cref="RolesManage"/> / <see cref="ApiKeysManage"/> it is NOT
+    /// self-escalation (a webhook forwards events to an external URL bounded by the SSRF
+    /// guard; it cannot expand the caller's own authority), so it is NOT in
+    /// <see cref="NotServiceAccountGrantable"/> - a service account may manage webhooks.
+    /// </summary>
+    public const string WebhooksManage = "webhooks:manage";
+
     /// <summary>Owner-reserved: rename or reconfigure the tenant. Never grantable in a custom role.</summary>
     public const string TenantManage = "tenant:manage";
 
@@ -93,6 +104,7 @@ public static class Permissions
         TeamsManage,
         AuditRead,
         ApiKeysManage,
+        WebhooksManage,
         TenantManage,
         TenantDelete,
         TenantTransferOwnership,

@@ -31,6 +31,7 @@ using Starter.Platform.Events;
 using Starter.Platform.Http;
 using Starter.Platform.Notifications;
 using Starter.Platform.Tenancy;
+using Starter.Platform.Webhooks;
 using Starter.SharedKernel;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -138,7 +139,11 @@ if (!string.IsNullOrWhiteSpace(otlpEndpoint))
         .WithTracing(tracing => tracing
             .AddAspNetCoreInstrumentation(instrumentation =>
                 instrumentation.Filter = httpContext => !IsProbePath(httpContext.Request.Path))
-            .AddHttpClientInstrumentation()
+            // Keep a tenant's receiver URL (which can embed a secret in its path) out of
+            // traces: the webhook delivery client marks its requests and this enrichment
+            // redacts the URL tags on those spans (webhooks.md section 5).
+            .AddHttpClientInstrumentation(instrumentation =>
+                instrumentation.EnrichWithHttpRequestMessage = WebhookTraceRedaction.Enrich)
             .AddOtlpExporter())
         .WithMetrics(metrics => metrics
             .AddAspNetCoreInstrumentation()
@@ -309,6 +314,12 @@ if (postgres is not null)
     // context, so it lives inside the persistence block.
     builder.Services.AddPlatformDataProtection();
 
+    // Outbound webhooks (webhooks.md section 10): the Fast-lane fan-out consumer, the
+    // leader-elected delivery worker, the SSRF-guarded delivery HttpClient, the retention
+    // pass, and the RLS-bound admin service. Lives in the persistence block: it needs the
+    // platform context, the outbox, and the DataProtection key ring registered above.
+    builder.Services.AddWebhooks(builder.Configuration);
+
     // Readiness: Postgres reachable via the same data source every request
     // path rides, and every schema's migrations applied. A bounded per-check
     // timeout keeps worst-case /readyz latency predictable.
@@ -450,6 +461,10 @@ if (postgres is not null)
     // A service account is a non-human principal that authenticates with its key
     // (Authorization: Bearer sk_...) and carries scoped grants, not a membership.
     app.MapServiceAccountEndpoints();
+    // The webhook control plane (webhooks.md section 7): register, list, update, rotate,
+    // delete, delivery log, and replay, all over the active tenant
+    // (/api/v1/tenant/webhooks) and gated by RequirePermission(webhooks:manage).
+    app.MapWebhookEndpoints();
     // The workspace-scoped view of the Sample resource
     // (/api/v1/workspaces/{workspaceId}/sample/notes): the worked example of a
     // workspace-scoped resource, gated by notes:read / notes:write at the workspace.

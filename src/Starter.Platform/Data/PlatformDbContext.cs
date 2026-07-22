@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Starter.Platform.Events;
 using Starter.Platform.Http;
 using Starter.Platform.Tenancy;
+using Starter.Platform.Webhooks;
 
 namespace Starter.Platform.Data;
 
@@ -11,13 +12,15 @@ namespace Starter.Platform.Data;
 /// and idempotency_keys - the plumbing every module shares. It also owns the
 /// DataProtection key ring (see <see cref="DataProtectionKeys"/>), so key
 /// material persists to Postgres instead of the container filesystem.
-/// Platform tables are not tenant-owned (no RLS), with a single deliberate
-/// exception: <c>platform.audit_log</c> (the per-tenant audit projection,
-/// <see cref="AuditLogRow"/>) IS tenant-owned and RLS-enforced, so a tenant admin
-/// reading their audit log is bound by the same authoritative boundary as every
-/// other tenant read (audit-log.md section 9). The context carries an
+/// Platform tables are not tenant-owned (no RLS), with deliberate exceptions:
+/// <c>platform.audit_log</c> (the per-tenant audit projection, <see cref="AuditLogRow"/>)
+/// and the outbound-webhooks tables <c>platform.webhook_endpoints</c>
+/// (<see cref="WebhookEndpointRow"/>) and <c>platform.webhook_deliveries</c>
+/// (<see cref="WebhookDeliveryRow"/>) are ALL tenant-owned and RLS-enforced, so a tenant
+/// admin reading them is bound by the same authoritative boundary as every other tenant
+/// read (audit-log.md section 9, webhooks.md section 1). The context carries an
 /// <see cref="ITenantContext"/> so it fits the one module-context shape, and the
-/// interceptor sets the RLS GUC for the audit-log read/write.
+/// interceptor sets the RLS GUC for those reads/writes.
 /// </summary>
 internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options, ITenantContext tenantContext)
     : ModuleDbContext(options, SchemaName, tenantContext), IDataProtectionKeyContext
@@ -159,6 +162,47 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.Property(e => e.Summary).HasColumnType("text");
             entity.Property(e => e.Data).HasColumnType("jsonb");
         });
+
+        modelBuilder.Entity<WebhookEndpointRow>(entity =>
+        {
+            // A tenant's registered webhook receiver (webhooks.md section 2), tenant-owned
+            // and RLS-enforced (the RLS policy is hand-written in the migration). The
+            // signing secret persists ONLY as DataProtection ciphertext plus a display
+            // prefix; the raw secret is never a column.
+            entity.ToTable("webhook_endpoints");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Url).HasColumnType("text");
+            entity.Property(e => e.Description).HasColumnType("text");
+            entity.Property(e => e.EventTypes).HasColumnType("text[]");
+            entity.Property(e => e.SigningSecretEncrypted).HasColumnType("text");
+            entity.Property(e => e.SecretPrefix).HasColumnType("text");
+            entity.HasIndex(e => e.TenantId).HasDatabaseName("ix_webhook_endpoints_tenant");
+            ApplyTenantFilter(entity);
+        });
+
+        modelBuilder.Entity<WebhookDeliveryRow>(entity =>
+        {
+            // One (event, endpoint) delivery (webhooks.md section 2), tenant-owned and
+            // RLS-enforced. The unique (endpoint_id, event_id) is the fan-out idempotency
+            // key; the partial (next_attempt_at) where status = 'pending' index serves the
+            // worker's claim, mirroring the outbox poll index.
+            entity.ToTable("webhook_deliveries");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.EventType).HasColumnType("text");
+            entity.Property(e => e.Payload).HasColumnType("jsonb");
+            entity.Property(e => e.Status).HasColumnType("text");
+            entity.Property(e => e.LastError).HasColumnType("text");
+            entity.HasIndex(e => new { e.EndpointId, e.EventId })
+                .IsUnique()
+                .HasDatabaseName("ux_webhook_deliveries_endpoint_event");
+            entity.HasIndex(e => e.NextAttemptAt)
+                .HasFilter("status = 'pending'")
+                .HasDatabaseName("ix_webhook_deliveries_claim");
+            entity.HasIndex(e => new { e.TenantId, e.EndpointId, e.CreatedAt })
+                .IsDescending(false, false, true)
+                .HasDatabaseName("ix_webhook_deliveries_tenant_endpoint_created");
+            ApplyTenantFilter(entity);
+        });
     }
 
     /// <summary>The cross-tenant operators (mapping only; the runtime uses raw bypass SQL).</summary>
@@ -172,4 +216,10 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
     /// <summary>The platform (null-tenant) audit log (no RLS; written on the bypass path, read behind RequirePlatformAdmin).</summary>
     internal DbSet<PlatformAuditLogRow> PlatformAuditLog => Set<PlatformAuditLogRow>();
+
+    /// <summary>The tenant's webhook endpoints (RLS-enforced; register/list/update/rotate/delete on the request path).</summary>
+    internal DbSet<WebhookEndpointRow> WebhookEndpoints => Set<WebhookEndpointRow>();
+
+    /// <summary>The webhook deliveries (RLS-enforced; written by the fan-out consumer, drained by the worker on the bypass path).</summary>
+    internal DbSet<WebhookDeliveryRow> WebhookDeliveries => Set<WebhookDeliveryRow>();
 }

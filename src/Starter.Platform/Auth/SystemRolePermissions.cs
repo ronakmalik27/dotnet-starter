@@ -61,6 +61,11 @@ public static class SystemRolePermissions
             // grantable in a custom role like any non-owner-reserved permission -
             // but never to a service account (Permissions.NotServiceAccountGrantable).
             Permissions.ApiKeysManage,
+            // Managing outbound webhooks is admin work (webhooks.md section 7): Admins and
+            // Owners register endpoints, rotate secrets, and replay deliveries. Grantable
+            // in a custom role like any non-owner-reserved permission, and (unlike keys)
+            // grantable to a service account too - it is not self-escalation.
+            Permissions.WebhooksManage,
         ])
         .ToFrozenSet(StringComparer.Ordinal);
 

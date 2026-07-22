@@ -11,6 +11,7 @@ using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Starter.Platform.Notifications;
 using Starter.Platform.Tenancy;
+using Starter.Platform.Webhooks;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -40,6 +41,21 @@ public sealed class StarterAppFixture : IAsyncLifetime
     // sets it far above any test's volume.
     private const string SignupRateLimitKey = "RateLimiting__SignupPerMinute";
 
+    // Webhook worker tuning for a fast, deterministic suite plus the loopback allowance
+    // (WebhookOptions is bound from config, so these ride environment variables like the
+    // connection string). AllowLoopbackDelivery relaxes ONLY loopback so the worker can
+    // reach a test-local receiver; every other blocked SSRF range stays blocked.
+    private static readonly (string Key, string Value)[] WebhookEnvironment =
+    [
+        ("Webhooks__AllowLoopbackDelivery", "true"),
+        ("Webhooks__PollInterval", "00:00:00.2"),
+        ("Webhooks__MaxAttempts", "3"),
+        ("Webhooks__MaxBackoff", "00:00:00.5"),
+        ("Webhooks__MaxJitter", "00:00:00"),
+        ("Webhooks__SendTimeout", "00:00:03"),
+        ("Webhooks__LeaderRetryInterval", "00:00:01"),
+    ];
+
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17")
         .Build();
 
@@ -47,6 +63,12 @@ public sealed class StarterAppFixture : IAsyncLifetime
 
     /// <summary>The captured outbound mailbox.</summary>
     public CapturingEmailSender Emails { get; } = new();
+
+    /// <summary>
+    /// The test webhook DNS resolver: tests map hostnames to chosen addresses so the SSRF
+    /// guard is exercisable (including the DNS-rebinding case) without real DNS.
+    /// </summary>
+    internal TestWebhookDnsResolver WebhookDns { get; } = new();
 
     /// <summary>A client bound to the in-process host. Cookies are handled
     /// manually by the tests (the refresh cookie is Secure), so auto cookie
@@ -91,6 +113,10 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(MigrateKey, "true");
         Environment.SetEnvironmentVariable(SigningKeyKey, CreateEs256PrivateKeyPem());
         Environment.SetEnvironmentVariable(SignupRateLimitKey, "100000");
+        foreach (var (key, value) in WebhookEnvironment)
+        {
+            Environment.SetEnvironmentVariable(key, value);
+        }
 
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
@@ -113,6 +139,14 @@ public sealed class StarterAppFixture : IAsyncLifetime
                 services.Configure<RateLimiterOptions>(rateLimiter =>
                     rateLimiter.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
                         _ => RateLimitPartition.GetNoLimiter("test")));
+
+                // Substitute the test DNS resolver so the SSRF guard resolves through a
+                // seam the tests control (this Configure runs after the host's, so it wins).
+                // The webhook worker's timings and the loopback allowance are set via
+                // environment variables (WebhookOptions uses init-only setters, bound from
+                // config), in InitializeAsync below.
+                services.RemoveAll<IWebhookDnsResolver>();
+                services.AddSingleton<IWebhookDnsResolver>(WebhookDns);
             }));
 
         // Building the client triggers host startup, which runs every
@@ -139,6 +173,10 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(MigrateKey, null);
         Environment.SetEnvironmentVariable(SigningKeyKey, null);
         Environment.SetEnvironmentVariable(SignupRateLimitKey, null);
+        foreach (var (key, _) in WebhookEnvironment)
+        {
+            Environment.SetEnvironmentVariable(key, null);
+        }
     }
 
     /// <summary>
