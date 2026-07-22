@@ -102,6 +102,7 @@ public static class IdentityModule
         services.AddScoped<RegistrationStagingHandler>();
         services.AddScoped<IssueSessionForHandler>();
         services.AddScoped<SelectTenantHandler>();
+        services.AddScoped<IssueImpersonationTokenHandler>();
         services.AddScoped<LoginHandler>();
         services.AddScoped<RefreshHandler>();
         services.AddScoped<GoogleSignInHandler>();

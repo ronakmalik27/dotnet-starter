@@ -175,4 +175,41 @@ internal static class TenancyEvents
             ActorUserId = actorUserId,
             Payload = JsonSerializer.Serialize(new { }, Json),
         };
+
+    /// <summary>
+    /// tenancy.tenant.suspended: a platform admin suspended the tenant
+    /// (status -> suspended). Actor is the acting platform admin; the event is
+    /// tenant-scoped (tenant_id = the target), so it lands on the tenant's spine.
+    /// </summary>
+    public static DomainEventRecord TenantSuspended(
+        Guid tenantId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.tenant.suspended",
+            EntityId = tenantId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.tenant.reactivated: a platform admin reactivated a suspended
+    /// tenant (status -> active). Actor is the acting platform admin.
+    /// </summary>
+    public static DomainEventRecord TenantReactivated(
+        Guid tenantId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.tenant.reactivated",
+            EntityId = tenantId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
 }

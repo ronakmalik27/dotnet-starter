@@ -59,4 +59,23 @@ public static class StarterClaims
     /// and enforced at refresh only.
     /// </summary>
     public const string Ver = "ver";
+
+    /// <summary>
+    /// Present only on an impersonation access token: the acting platform
+    /// admin's user id. It is a signed claim, so it is unforgeable and every
+    /// impersonated request is attributable to the human behind it (multi-
+    /// tenancy.md section 7). Its presence is also the marker the per-request
+    /// impersonation guard and the destructive-op filter key on: a normal token
+    /// never carries it.
+    /// </summary>
+    public const string Imp = "imp";
+
+    /// <summary>
+    /// Present only on an impersonation access token: the
+    /// platform.impersonation_grants row id backing the session. The per-request
+    /// guard reads it to re-check the exact grant (ended_at, expires_at) so
+    /// ending a session takes effect on the very next request, not at token
+    /// expiry.
+    /// </summary>
+    public const string ImpGrant = "impgrant";
 }

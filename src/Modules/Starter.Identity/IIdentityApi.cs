@@ -171,4 +171,25 @@ public interface IIdentityApi : ITenantProvisioningIdentity, IUserDirectory
         Guid sessionId,
         Guid tenantId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Mints the SHORT impersonation access token for a platform-admin session
+    /// (multi-tenancy.md section 7). Called only after the Tenancy control plane
+    /// has committed the grant row and its ImpersonationStarted event, so a token
+    /// never exists without its audit record. The token's sub is
+    /// <paramref name="subjectUserId"/> (the target user, or the acting admin
+    /// when no target user was named), tid is <paramref name="tenantId"/>, imp /
+    /// impgrant name <paramref name="actingAdminUserId"/> and
+    /// <paramref name="grantId"/>, and exp is <paramref name="expiresAt"/> (the
+    /// grant's absolute expiry - the token and the grant die together). No
+    /// refresh token; impersonation is not refreshable. An absent or inactive
+    /// subject is a generic Unauthorized.
+    /// </summary>
+    Task<Result<TenantAccessToken>> IssueImpersonationTokenAsync(
+        Guid subjectUserId,
+        Guid tenantId,
+        Guid actingAdminUserId,
+        Guid grantId,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken);
 }

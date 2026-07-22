@@ -31,4 +31,24 @@ internal sealed class MembershipDirectory(BypassDataSource bypass)
 
         return await command.ExecuteScalarAsync(cancellationToken) is not null;
     }
+
+    /// <summary>
+    /// True when the tenant exists and its status is active. The tenant-token
+    /// mint reads it (after the membership check) to refuse minting a new tid
+    /// token for a suspended or deleted tenant (multi-tenancy.md section 6
+    /// lifecycle). It runs on the bypass path for the same reason the membership
+    /// check does: the caller holds no tid for the tenant yet, so an RLS-bound
+    /// read keyed on the current-tenant GUC would see nothing. A missing tenant
+    /// is false.
+    /// </summary>
+    public async Task<bool> IsTenantActiveAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select 1 from tenancy.tenants where id = @tenant and status = 'active' limit 1",
+            connection);
+        command.Parameters.AddWithValue("tenant", tenantId);
+
+        return await command.ExecuteScalarAsync(cancellationToken) is not null;
+    }
 }

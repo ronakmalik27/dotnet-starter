@@ -18,7 +18,9 @@ internal sealed class TenancyApi(
     MembershipDirectory memberships,
     TenantRoleResolver roles,
     TenantAdminService admin,
-    InvitationAcceptor acceptor) : ITenancyApi
+    InvitationAcceptor acceptor,
+    PlatformAdminDirectory platformAdmins,
+    PlatformAdminService platform) : ITenancyApi
 {
     public Task<Result<SelfServeSignup>> ProvisionSelfServeAsync(
         string email,
@@ -32,6 +34,49 @@ internal sealed class TenancyApi(
 
     public Task<bool> IsActiveMemberAsync(Guid tenantId, Guid userId, CancellationToken cancellationToken) =>
         memberships.IsActiveMemberAsync(tenantId, userId, cancellationToken);
+
+    public Task<bool> IsTenantActiveAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        memberships.IsTenantActiveAsync(tenantId, cancellationToken);
+
+    public Task<bool> IsPlatformAdminAsync(Guid userId, CancellationToken cancellationToken) =>
+        platformAdmins.IsPlatformAdminAsync(userId, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid Id, string Slug, string Name, string Status, string? Plan, int SeatLimit, DateTimeOffset CreatedAt)>>
+        ListTenantsAsync(string? query, int limit, CancellationToken cancellationToken) =>
+        platform.ListTenantsAsync(query, limit, cancellationToken);
+
+    public Task<(Guid Id, string Slug, string Name, string Status, string? Plan, int SeatLimit, DateTimeOffset CreatedAt)?>
+        GetTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        platform.GetTenantAsync(tenantId, cancellationToken);
+
+    public Task<Result> SuspendTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken) =>
+        platform.SuspendTenantAsync(actorUserId, tenantId, cancellationToken);
+
+    public Task<Result> ReactivateTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken) =>
+        platform.ReactivateTenantAsync(actorUserId, tenantId, cancellationToken);
+
+    public Task<Result> PlatformDeleteTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken) =>
+        platform.DeleteTenantAsync(actorUserId, tenantId, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt)>>
+        ListPlatformAdminsAsync(CancellationToken cancellationToken) =>
+        platform.ListPlatformAdminsAsync(cancellationToken);
+
+    public Task<Result> GrantPlatformAdminAsync(
+        Guid actorUserId, Guid? targetUserId, string? email, CancellationToken cancellationToken) =>
+        platform.GrantPlatformAdminAsync(actorUserId, targetUserId, email, cancellationToken);
+
+    public Task<Result> RevokePlatformAdminAsync(
+        Guid actorUserId, Guid targetUserId, CancellationToken cancellationToken) =>
+        platform.RevokePlatformAdminAsync(actorUserId, targetUserId, cancellationToken);
+
+    public Task<Result<(Guid GrantId, Guid SubjectUserId, Guid TargetTenantId, DateTimeOffset ExpiresAt)>>
+        StartImpersonationAsync(
+            Guid actorUserId, Guid tenantId, Guid? targetUserId, string reason, CancellationToken cancellationToken) =>
+        platform.StartImpersonationAsync(actorUserId, tenantId, targetUserId, reason, cancellationToken);
+
+    public Task<Result> EndImpersonationAsync(Guid actorUserId, Guid grantId, CancellationToken cancellationToken) =>
+        platform.EndImpersonationAsync(actorUserId, grantId, cancellationToken);
 
     public Task<TenantRole?> GetCallerRoleAsync(Guid userId, CancellationToken cancellationToken) =>
         roles.GetCallerRoleAsync(userId, cancellationToken);

@@ -49,4 +49,49 @@ internal sealed class AccessTokenIssuer(ECDsaSecurityKey signingKey)
 
         return Handler.CreateToken(descriptor);
     }
+
+    /// <summary>
+    /// Mints the SHORT impersonation access token (multi-tenancy.md section 7):
+    /// sub is the subject being acted as (the target user, or the acting admin
+    /// when no target user was named), tid is the target tenant so RLS scopes
+    /// the session, and the imp / impgrant claims name the acting admin and the
+    /// backing grant so every request is attributable and the per-request guard
+    /// can re-check the exact grant. There is NO sid claim (the token is not
+    /// backed by a refresh session and is never refreshable). exp is the grant's
+    /// absolute expiry, so the token and its grant die together (never later
+    /// than the 15-minute access cap, enforced by the caller when it computes
+    /// the grant window). ver is the subject's current token version, so the
+    /// token validates exactly like a normal one.
+    /// </summary>
+    public string IssueImpersonation(
+        Guid subjectUserId,
+        Guid tenantId,
+        int subjectTokenVersion,
+        Guid actingAdminUserId,
+        Guid grantId,
+        DateTimeOffset now,
+        DateTimeOffset expiresAt)
+    {
+        var claims = new Dictionary<string, object>
+        {
+            [StarterClaims.Sub] = subjectUserId.ToString(),
+            [StarterClaims.Tid] = tenantId.ToString(),
+            [StarterClaims.Ver] = subjectTokenVersion,
+            [StarterClaims.Imp] = actingAdminUserId.ToString(),
+            [StarterClaims.ImpGrant] = grantId.ToString(),
+        };
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = StarterAuth.Issuer,
+            Audience = StarterAuth.Audience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expiresAt.UtcDateTime,
+            SigningCredentials = _credentials,
+            Claims = claims,
+        };
+
+        return Handler.CreateToken(descriptor);
+    }
 }

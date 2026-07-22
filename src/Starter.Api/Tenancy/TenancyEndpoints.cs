@@ -152,6 +152,19 @@ public static class TenancyEndpoints
             return MembershipNotFound(http);
         }
 
+        // Tenant-status enforcement (multi-tenancy.md section 6 lifecycle):
+        // refuse minting a NEW tid token for a suspended or deleted tenant. The
+        // caller is a member (they just passed the check above), so the honest
+        // answer is 403 tenant-inactive, not a 404. Existing tid tokens still age
+        // out within the 15-minute access window (the repo's stateless-JWT
+        // posture); per-request tenant-status enforcement is a noted extension
+        // point, not added to every tenant-scoped request. Impersonation does not
+        // use this path, so a support admin may still enter a suspended tenant.
+        if (!await tenancy.IsTenantActiveAsync(id, cancellationToken))
+        {
+            return TypedResults.Problem(StarterProblems.TenantInactive(http));
+        }
+
         var result = await identity.SelectTenantAsync(userId.Value, sessionId.Value, id, cancellationToken);
         return result.Match(
             token => (IResult)TypedResults.Ok(new TokenResponse(token.AccessToken, token.AccessTokenExpiresIn)),

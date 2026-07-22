@@ -107,6 +107,58 @@ public static class ProblemTypes
     /// </summary>
     public const string TenantMembershipConflict = "starter:tenant-membership-conflict";
 
+    /// <summary>
+    /// 403: the caller is authenticated but is not a platform super-admin, and
+    /// this endpoint is on the platform control plane (multi-tenancy.md section
+    /// 7). Platform power is separate from any tenant role - it is membership of
+    /// platform.platform_admins, never a tenant membership. Not 404: the
+    /// platform surface is a known, documented plane, so the honest answer is
+    /// "you are not a platform admin".
+    /// </summary>
+    public const string PlatformAdminRequired = "starter:platform-admin-required";
+
+    /// <summary>
+    /// 409: revoking this platform admin would leave the platform with none, so
+    /// the operation is refused (the lockout guard). A platform must always have
+    /// at least one super-admin; the first is seeded out of band and this rule
+    /// keeps the last one from being removed through the API.
+    /// </summary>
+    public const string PlatformLastAdmin = "starter:platform-last-admin";
+
+    /// <summary>
+    /// 403: the request is acting under an impersonation token (it carries the
+    /// imp claim) and this endpoint is destructive or irreversible, so it is
+    /// refused (multi-tenancy.md section 7, the conservative default a real app
+    /// tightens per endpoint). Not 404: the resource may well exist; the honest
+    /// answer is "not while impersonating".
+    /// </summary>
+    public const string ImpersonationForbidden = "starter:impersonation-forbidden";
+
+    /// <summary>
+    /// 401: the impersonation session backing this token is over - the grant was
+    /// ended early or has passed its expiry - so the per-request guard rejects
+    /// it immediately, not only when the token itself expires (multi-tenancy.md
+    /// section 7). The caller is no longer authenticated for this session.
+    /// </summary>
+    public const string ImpersonationEnded = "starter:impersonation-ended";
+
+    /// <summary>
+    /// 403: the caller is an active member but the target tenant is suspended or
+    /// deleted, so a NEW tid token cannot be minted for it (multi-tenancy.md
+    /// section 6 lifecycle). Existing tid tokens age out within the 15-minute
+    /// access window; this only blocks fresh re-entry. Impersonation deliberately
+    /// does not use this path (a support admin may enter a suspended tenant).
+    /// </summary>
+    public const string TenantInactive = "starter:tenant-inactive";
+
+    /// <summary>
+    /// 409: a tenant-lifecycle transition was requested from a state that does
+    /// not allow it (suspending a non-active tenant, reactivating a non-suspended
+    /// one, or deleting an already-deleted one). A tenant's status is a definite,
+    /// non-secret fact to a platform admin, so a definite answer is fine.
+    /// </summary>
+    public const string TenantStateConflict = "starter:tenant-state-conflict";
+
     /// <summary>405: the HTTP method is not supported on this route.</summary>
     public const string MethodNotAllowed = "starter:method-not-allowed";
 

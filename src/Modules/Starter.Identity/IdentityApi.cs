@@ -36,6 +36,7 @@ internal sealed class IdentityApi(
     VerificationEmailComposer verificationEmail,
     IssueSessionForHandler issueSessionFor,
     SelectTenantHandler selectTenant,
+    IssueImpersonationTokenHandler issueImpersonationToken,
     UserDirectoryQuery userDirectory) : IIdentityApi
 {
     public Task<Result> RegisterAsync(string email, string password, CancellationToken cancellationToken) =>
@@ -122,6 +123,16 @@ internal sealed class IdentityApi(
         Guid tenantId,
         CancellationToken cancellationToken) =>
         selectTenant.HandleAsync(userId, sessionId, tenantId, cancellationToken);
+
+    public Task<Result<TenantAccessToken>> IssueImpersonationTokenAsync(
+        Guid subjectUserId,
+        Guid tenantId,
+        Guid actingAdminUserId,
+        Guid grantId,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken) =>
+        issueImpersonationToken.HandleAsync(
+            subjectUserId, tenantId, actingAdminUserId, grantId, expiresAt, cancellationToken);
 
     public Task<string?> GetEmailAsync(Guid userId, CancellationToken cancellationToken) =>
         userDirectory.GetEmailAsync(userId, cancellationToken);

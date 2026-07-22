@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
+using Starter.Api.Platform;
 using Starter.Tenancy;
 using Starter.Platform.Auth;
 using Starter.Platform.Http;
@@ -33,15 +34,26 @@ public static class TenantAdminEndpoints
 
         tenant.MapGet("/members", ListMembersAsync).RequireTenantRole(TenantRole.Member);
         tenant.MapPatch("/members/{userId:guid}", ChangeMemberRoleAsync).RequireTenantRole(TenantRole.Admin);
-        tenant.MapDelete("/members/{userId:guid}", RemoveMemberAsync).RequireTenantRole(TenantRole.Admin);
+        // Removing a member is destructive, so it is refused under an
+        // impersonation token (the conservative default, multi-tenancy.md
+        // section 7); BlockUnderImpersonation is outermost among the route filters.
+        tenant.MapDelete("/members/{userId:guid}", RemoveMemberAsync)
+            .BlockUnderImpersonation()
+            .RequireTenantRole(TenantRole.Admin);
 
         tenant.MapPost("/invitations", InviteAsync).RequireTenantRole(TenantRole.Admin);
         tenant.MapGet("/invitations", ListInvitationsAsync).RequireTenantRole(TenantRole.Admin);
         tenant.MapDelete("/invitations/{id:guid}", RevokeInvitationAsync).RequireTenantRole(TenantRole.Admin);
 
         tenant.MapPatch("/", UpdateSettingsAsync).RequireTenantRole(TenantRole.Admin);
-        tenant.MapPost("/transfer-ownership", TransferOwnershipAsync).RequireTenantRole(TenantRole.Owner);
-        tenant.MapPost("/delete", SoftDeleteAsync).RequireTenantRole(TenantRole.Owner);
+        // Ownership transfer and tenant soft-delete are irreversible, so both are
+        // refused under an impersonation token on top of their owner-only gate.
+        tenant.MapPost("/transfer-ownership", TransferOwnershipAsync)
+            .BlockUnderImpersonation()
+            .RequireTenantRole(TenantRole.Owner);
+        tenant.MapPost("/delete", SoftDeleteAsync)
+            .BlockUnderImpersonation()
+            .RequireTenantRole(TenantRole.Owner);
 
         tenant.MapGet("/seats", GetSeatsAsync).RequireTenantRole(TenantRole.Member);
 

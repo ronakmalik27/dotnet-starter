@@ -88,5 +88,35 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.Property(e => e.Consumer).HasColumnType("text");
             entity.Property(e => e.ProcessedAt).HasDefaultValueSql("now()");
         });
+
+        modelBuilder.Entity<PlatformAdminRow>(entity =>
+        {
+            // The cross-tenant operators. No RLS (a platform table); read and
+            // written only on the bypass path. pk is the user id, so a repeat
+            // grant is an upsert-friendly conflict on the primary key.
+            entity.ToTable("platform_admins");
+            entity.HasKey(e => e.UserId);
+            entity.Property(e => e.UserId).ValueGeneratedNever();
+            entity.Property(e => e.GrantedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<ImpersonationGrantRow>(entity =>
+        {
+            // The impersonation audit spine. No RLS; written and read only on
+            // the bypass path. The pk covers the per-request re-check; the two
+            // listing indexes back "sessions by this admin" and "sessions into
+            // this tenant".
+            entity.ToTable("impersonation_grants");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Reason).HasColumnType("text");
+            entity.HasIndex(e => e.PlatformAdminUserId);
+            entity.HasIndex(e => e.TargetTenantId);
+        });
     }
+
+    /// <summary>The cross-tenant operators (mapping only; the runtime uses raw bypass SQL).</summary>
+    internal DbSet<PlatformAdminRow> PlatformAdmins => Set<PlatformAdminRow>();
+
+    /// <summary>The impersonation audit spine (mapping only; the runtime uses raw bypass SQL).</summary>
+    internal DbSet<ImpersonationGrantRow> ImpersonationGrants => Set<ImpersonationGrantRow>();
 }

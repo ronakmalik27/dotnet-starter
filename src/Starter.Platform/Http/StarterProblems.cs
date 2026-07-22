@@ -142,6 +142,73 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 403 for an authenticated caller who is not a platform super-admin hitting
+    /// a platform control-plane endpoint (multi-tenancy.md section 7). Platform
+    /// power is membership of platform.platform_admins, never a tenant role.
+    /// </summary>
+    public static ProblemDetails PlatformAdminRequired(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status403Forbidden,
+            ProblemTypes.PlatformAdminRequired,
+            "Platform administrator access is required.",
+            "This action is on the platform control plane; your account is not a platform administrator.");
+    }
+
+    /// <summary>
+    /// 403 for a request acting under an impersonation token hitting a
+    /// destructive or irreversible endpoint (multi-tenancy.md section 7). The
+    /// conservative default: a support session cannot delete or transfer.
+    /// </summary>
+    public static ProblemDetails ImpersonationForbidden(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status403Forbidden,
+            ProblemTypes.ImpersonationForbidden,
+            "This action is not allowed while impersonating.",
+            "Destructive and irreversible operations are refused under an impersonation session.");
+    }
+
+    /// <summary>
+    /// 401 for a request whose impersonation grant has ended or expired (the
+    /// per-request guard, multi-tenancy.md section 7). Carries the 401 server
+    /// time like every other unauthorized answer.
+    /// </summary>
+    public static ProblemDetails ImpersonationEnded(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status401Unauthorized,
+            ProblemTypes.ImpersonationEnded,
+            "The impersonation session is over.",
+            "This impersonation grant was ended or has expired; start a new one.");
+    }
+
+    /// <summary>
+    /// 403 for a member whose target tenant is suspended or deleted, refusing a
+    /// fresh tid-token mint (multi-tenancy.md section 6 lifecycle).
+    /// </summary>
+    public static ProblemDetails TenantInactive(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status403Forbidden,
+            ProblemTypes.TenantInactive,
+            "This tenant is not active.",
+            "The tenant is suspended or deleted, so a new tenant token cannot be minted for it.");
+    }
+
+    /// <summary>
     /// 400 for a tenant-scoped endpoint reached with no resolvable tenant.
     /// A stable slug so a client can tell "you forgot to name a tenant" apart
     /// from a generic bad request.

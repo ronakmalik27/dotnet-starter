@@ -7,6 +7,7 @@ using Starter.Tenancy.Invitations;
 using Starter.Tenancy.Rbac;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
+using Starter.Platform.Tenancy;
 
 namespace Starter.Tenancy;
 
@@ -52,10 +53,24 @@ public static class TenancyModule
         services.AddSingleton<IValidateOptions<InvitationEmailOptions>, InvitationEmailOptionsValidator>();
         services.AddScoped<InvitationEmailComposer>();
 
+        // The platform control-plane options (impersonation window), bound from
+        // the Platform section and validated at startup. The default satisfies
+        // the annotation, so a zero-config host still boots.
+        var platformOptions = services.AddOptions<PlatformAdminOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        if (configuration is not null)
+        {
+            platformOptions.Bind(configuration.GetSection(PlatformAdminOptions.SectionName));
+        }
+
         // Bypass-path (cross-tenant control plane) slices.
         services.AddScoped<TenantProvisioner>();
         services.AddScoped<MembershipDirectory>();
         services.AddScoped<InvitationAcceptor>();
+        services.AddScoped<PlatformAdminDirectory>();
+        services.AddScoped<PlatformAdminService>();
+        services.AddScoped<ImpersonationGrantReader>();
 
         // Request-path (RLS-bound) slices.
         services.AddScoped<TenantRoleResolver>();
@@ -68,6 +83,12 @@ public static class TenancyModule
         // platform never references this module and there is one lookup.
         services.AddScoped<ITenantRoleReader>(
             provider => provider.GetRequiredService<TenantRoleResolver>());
+
+        // Bridge the platform-declared impersonation-guard port (used by the
+        // per-request guard middleware in the platform) to the bypass-path grant
+        // reader, so the platform never references this module.
+        services.AddScoped<IImpersonationGrantReader>(
+            provider => provider.GetRequiredService<ImpersonationGrantReader>());
 
         return services;
     }

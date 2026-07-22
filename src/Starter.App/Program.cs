@@ -15,6 +15,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 using Starter.Api.Identity;
+using Starter.Api.Platform;
 using Starter.Api.Sample;
 using Starter.Api.Tenancy;
 using Starter.App.Persistence;
@@ -340,6 +341,19 @@ if (postgres is not null && tenantRoles is not null
     await tenantRoles.GrantRequestRolePrivilegesAsync(
         schemas.Select(schema => schema.Name).Distinct(StringComparer.Ordinal).ToList(),
         CancellationToken.None);
+
+    // The out-of-band first-platform-admin seed (multi-tenancy.md section 7):
+    // when Platform:BootstrapAdminUserId names a user's guid, ensure that user is
+    // a platform super-admin. It runs after migrations and grants, on the bypass
+    // connection (platform tables live off the request role's reach), and is
+    // idempotent. The first admin is NEVER self-granted through the API; this is
+    // the only way one comes into being.
+    var bootstrapAdmin = builder.Configuration["Platform:BootstrapAdminUserId"];
+    if (Guid.TryParse(bootstrapAdmin, out var bootstrapAdminUserId) && bootstrapAdminUserId != Guid.Empty)
+    {
+        await PlatformAdminSeed.EnsureAsync(
+            tenantRoles.BypassConnectionString, bootstrapAdminUserId, CancellationToken.None);
+    }
 }
 
 // The request pipeline. Security headers and correlation/request logging are
@@ -363,6 +377,14 @@ app.UseCors(corsPolicyName);
 app.UseRateLimiter();
 
 app.UseAuthentication();
+
+// The per-request impersonation guard runs immediately after authentication
+// (the principal is populated) and before authorization and tenant resolution,
+// so a request on an ended or expired impersonation grant is rejected with 401
+// before any endpoint, gate, or tenant-scoped work runs. For a normal token
+// (no imp claim) it is a single claim-presence check with no DB hit.
+app.UseStarterImpersonationGuard();
+
 app.UseAuthorization();
 
 // Tenant resolution runs after authentication (it reads the tid claim off the
@@ -401,6 +423,10 @@ if (postgres is not null)
     // The tenant-admin control plane (member/invitation management, settings,
     // ownership, soft-delete, seats), all over the active tenant (/api/v1/tenant).
     app.MapTenantAdminEndpoints();
+    // The platform super-admin plane (cross-tenant tenant lifecycle, the
+    // platform-admin roster, audited impersonation), all under /api/v1/platform
+    // and gated by RequirePlatformAdmin - never a tenant role.
+    app.MapPlatformAdminEndpoints();
 
     ApiVersionSet versionSet = app.NewApiVersionSet()
         .HasApiVersion(new ApiVersion(1))

@@ -17,12 +17,13 @@ namespace Starter.Architecture.Tests;
 /// <para>
 /// Starter.Tenancy is the exception, and a narrow one: crossing tenants IS its
 /// job for the control plane (multi-tenancy.md section 10), but only for a named
-/// allowlist of two types - the self-serve <c>TenantProvisioner</c> (a new
-/// tenant boundary must be created before any tenant context exists) and the
-/// <c>MembershipDirectory</c> (the tenant-token mint check keys on a tenant the
-/// caller holds no tid for yet). Every OTHER Tenancy type stays banned, so the
-/// allowlist is the literal, enforced definition of "explicitly cross-tenant
-/// platform code". Only the composition root (Starter.App) is otherwise allowed.
+/// allowlist of control-plane types - the self-serve <c>TenantProvisioner</c>, the
+/// <c>MembershipDirectory</c>, the <c>InvitationAcceptor</c>, and the platform
+/// super-admin plane (<c>PlatformAdminDirectory</c>, <c>PlatformAdminService</c>,
+/// and the <c>ImpersonationGrantReader</c>). Every OTHER Tenancy type stays
+/// banned, so the allowlist is the literal, enforced definition of "explicitly
+/// cross-tenant platform code". Only the composition root (Starter.App) is
+/// otherwise allowed.
 /// </para>
 /// <para>
 /// This walks IL with Mono.Cecil directly rather than the ArchUnitNET fluent
@@ -40,16 +41,26 @@ public class BypassDataSourceContainmentTests
     private const string BypassTypeFullName = "Starter.Platform.Tenancy.BypassDataSource";
 
     // The only types permitted to touch the bypass data source, all in
-    // Starter.Tenancy and all genuinely cross-tenant control-plane work: the
-    // self-serve provisioner (a boundary must exist before any tenant context),
-    // the membership directory (the mint check keys on a tenant the caller holds
-    // no tid for yet), and the invitation acceptor (the invitee is not yet a
-    // member, so the token lookup and seat check cross the boundary).
+    // Starter.Tenancy and all genuinely cross-tenant control-plane work:
+    // - the self-serve provisioner (a boundary must exist before any tenant context);
+    // - the membership directory (the mint check keys on a tenant the caller holds
+    //   no tid for yet, and the tenant-status check the same);
+    // - the invitation acceptor (the invitee is not yet a member, so the token
+    //   lookup and seat check cross the boundary);
+    // - the platform-admin directory (the RequirePlatformAdmin gate reads
+    //   platform.platform_admins, a no-RLS platform table);
+    // - the platform-admin service (cross-tenant tenant lifecycle, the platform-
+    //   admin roster, and the impersonation audit spine);
+    // - the impersonation grant reader (the per-request guard re-checks a grant
+    //   on the no-RLS platform table).
     private static readonly string[] TenancyAllowlist =
     [
         "Starter.Tenancy.ControlPlane.TenantProvisioner",
         "Starter.Tenancy.ControlPlane.MembershipDirectory",
         "Starter.Tenancy.ControlPlane.InvitationAcceptor",
+        "Starter.Tenancy.ControlPlane.PlatformAdminDirectory",
+        "Starter.Tenancy.ControlPlane.PlatformAdminService",
+        "Starter.Tenancy.ControlPlane.ImpersonationGrantReader",
     ];
 
     [Fact]
@@ -83,9 +94,10 @@ public class BypassDataSourceContainmentTests
         var violations = hits.Where(hit => !IsAllowlisted(hit)).Distinct().ToList();
 
         violations.ShouldBeEmpty(
-            "only the allowlisted control-plane types (TenantProvisioner, MembershipDirectory) may "
-            + "reach the bypass data source; every other Tenancy type is request/consumer code and "
-            + "stays bound by the tenant boundary (multi-tenancy.md sections 2 and 10)");
+            "only the allowlisted control-plane types (the provisioner, membership directory, invitation "
+            + "acceptor, and the platform super-admin plane) may reach the bypass data source; every other "
+            + "Tenancy type is request/consumer code and stays bound by the tenant boundary "
+            + "(multi-tenancy.md sections 2 and 10)");
 
         // Guards against a vacuous allowlist: if the allowlisted types no longer
         // use the bypass source (a refactor that moved the cross-tenant work),

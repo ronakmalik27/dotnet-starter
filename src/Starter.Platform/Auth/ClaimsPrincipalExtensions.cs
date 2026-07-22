@@ -36,4 +36,37 @@ public static class ClaimsPrincipalExtensions
         var sid = principal.FindFirst(StarterClaims.Sid)?.Value;
         return Guid.TryParse(sid, out var sessionId) ? sessionId : null;
     }
+
+    /// <summary>
+    /// The impersonation coordinates on this principal - the acting platform
+    /// admin id (the <c>imp</c> claim) and the backing grant id (the
+    /// <c>impgrant</c> claim) - or null when the token is not an impersonation
+    /// token. Both claims must be present and parseable; a token carrying only
+    /// one is treated as no impersonation (fail-closed to null, so a
+    /// half-formed claim set can never satisfy the guard). The per-request
+    /// guard and the destructive-op filter read this.
+    /// </summary>
+    public static ImpersonationClaims? GetImpersonation(this ClaimsPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        var imp = principal.FindFirst(StarterClaims.Imp)?.Value;
+        var grant = principal.FindFirst(StarterClaims.ImpGrant)?.Value;
+        if (Guid.TryParse(imp, out var adminUserId) && Guid.TryParse(grant, out var grantId))
+        {
+            return new ImpersonationClaims(adminUserId, grantId);
+        }
+
+        return null;
+    }
 }
+
+/// <summary>
+/// The impersonation coordinates carried by an impersonation access token: the
+/// acting platform admin's user id and the backing
+/// <c>platform.impersonation_grants</c> row id. Both are signed claims, so both
+/// are unforgeable.
+/// </summary>
+/// <param name="AdminUserId">The acting platform admin (the <c>imp</c> claim).</param>
+/// <param name="GrantId">The backing grant row id (the <c>impgrant</c> claim).</param>
+public sealed record ImpersonationClaims(Guid AdminUserId, Guid GrantId);

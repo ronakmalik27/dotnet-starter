@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Starter.Api.Identity;
+using Starter.Api.Platform;
 using Starter.Sample;
 using Starter.Platform.Auth;
 using Starter.Platform.Http;
@@ -62,7 +63,12 @@ public static class SampleEndpoints
             .RequireVerifiedEmail()
             .RequireAuthorization();
         notes.MapGet("/{id:guid}", GetNoteByIdAsync).RequireTenant().RequireAuthorization();
+        // Delete is destructive and irreversible, so it is refused under an
+        // impersonation token (the conservative default, multi-tenancy.md
+        // section 7). BlockUnderImpersonation is added first so it is outermost
+        // and an impersonated delete is refused before any tenant work.
         notes.MapDelete("/{id:guid}", DeleteNoteAsync)
+            .BlockUnderImpersonation()
             .RequireTenant()
             .RequireVerifiedEmail()
             .RequireAuthorization();
