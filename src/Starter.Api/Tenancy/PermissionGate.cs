@@ -82,6 +82,53 @@ public static class PermissionGate
             invocationContext => InvokeEntitlementAsync(invocationContext, next, feature));
     }
 
+    /// <summary>
+    /// Declares that the endpoint is gated by a FEATURE FLAG (feature-flags.md
+    /// section 4): the flag must resolve ON for the active tenant, else the request
+    /// short-circuits with 404 - a not-yet-released feature should look like it does
+    /// not exist, not like it is forbidden or paywalled, so a probe cannot map the
+    /// unreleased surface. Compose it AFTER <see cref="RequireTenant"/> (a no-tenant
+    /// request answers 400 tenant-required first).
+    /// <para>
+    /// Feature flags FAIL CLOSED, so an unknown, archived, or off flag all resolve to
+    /// 404. A flag gate and an entitlement gate are independent and may both apply;
+    /// the flag's 404 hides the surface when both compose.
+    /// </para>
+    /// </summary>
+    public static TBuilder RequireFeatureFlag<TBuilder>(this TBuilder builder, string flagKey)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(flagKey);
+
+        return builder.AddEndpointFilterFactory((_, next) =>
+            invocationContext => InvokeFeatureFlagAsync(invocationContext, next, flagKey));
+    }
+
+    private static async ValueTask<object?> InvokeFeatureFlagAsync(
+        EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next,
+        string flagKey)
+    {
+        var http = context.HttpContext;
+
+        // A feature flag is a property of the ACTIVE tenant, not the caller (like an
+        // entitlement). RequireTenant (composed before) guarantees a resolved tenant,
+        // so the evaluator's RLS override read is bound to it. The workspace, when the
+        // request is workspace-scoped, sharpens resolution (workspace override wins).
+        var evaluator = http.RequestServices.GetRequiredService<IFeatureFlagEvaluator>();
+        var workspace = http.RequestServices.GetRequiredService<IWorkspaceContext>();
+        var enabled = await evaluator.IsEnabledAsync(flagKey, workspace.WorkspaceId, http.RequestAborted);
+        if (!enabled)
+        {
+            // 404, not 403/402: a hidden feature looks absent. The idiomatic
+            // starter:not-found envelope, the same the route 404 wears.
+            return TypedResults.Problem(StarterProblems.ForStatus(http, StatusCodes.Status404NotFound));
+        }
+
+        return await next(context);
+    }
+
     private static async ValueTask<object?> InvokeEntitlementAsync(
         EndpointFilterInvocationContext context,
         EndpointFilterDelegate next,

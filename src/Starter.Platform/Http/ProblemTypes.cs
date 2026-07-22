@@ -265,6 +265,15 @@ public static class ProblemTypes
     /// </summary>
     public const string PlatformPlanDefaultConflict = "starter:platform-plan-default-conflict";
 
+    /// <summary>
+    /// 403: a tenant admin tried to set or clear an override for a feature flag the
+    /// operator did NOT mark tenant-overridable (feature-flags.md section 5). The
+    /// operator holds the flag centrally (a kill switch or a not-yet-GA feature), so
+    /// a tenant cannot touch it. Not 404: the tenant surface already lists the flag,
+    /// so the honest answer is "you may not override this one".
+    /// </summary>
+    public const string FlagNotOverridable = "starter:flag-not-overridable";
+
     /// <summary>405: the HTTP method is not supported on this route.</summary>
     public const string MethodNotAllowed = "starter:method-not-allowed";
 

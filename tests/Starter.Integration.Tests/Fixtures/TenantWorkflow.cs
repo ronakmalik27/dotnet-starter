@@ -111,6 +111,10 @@ internal static class TenantWorkflow
         StarterAppFixture fixture, string uri, string bearer, object body, CancellationToken cancellationToken) =>
         SendJsonAsync(fixture, HttpMethod.Patch, uri, bearer, body, cancellationToken);
 
+    public static Task<HttpResponseMessage> PutJsonAsync(
+        StarterAppFixture fixture, string uri, string bearer, object body, CancellationToken cancellationToken) =>
+        SendJsonAsync(fixture, HttpMethod.Put, uri, bearer, body, cancellationToken);
+
     public static Task<HttpResponseMessage> GetAsync(
         StarterAppFixture fixture, string uri, string bearer, CancellationToken cancellationToken) =>
         SendAsync(fixture, HttpMethod.Get, uri, bearer, cancellationToken);

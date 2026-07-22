@@ -41,6 +41,12 @@ public sealed class StarterAppFixture : IAsyncLifetime
     // sets it far above any test's volume.
     private const string SignupRateLimitKey = "RateLimiting__SignupPerMinute";
 
+    // Maps the RequireFeatureFlag gate demonstration endpoint (feature-flags.md
+    // section 4): the filter ships unused on live routes by design, so the demo
+    // route exists only when this toggle is set - the test host sets it so the
+    // fail-closed test can exercise the real filter over HTTP; production leaves it off.
+    private const string FeatureFlagGateDemoKey = "FeatureFlags__GateDemoEnabled";
+
     // Webhook worker tuning for a fast, deterministic suite plus the loopback allowance
     // (WebhookOptions is bound from config, so these ride environment variables like the
     // connection string). AllowLoopbackDelivery relaxes ONLY loopback so the worker can
@@ -113,6 +119,7 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(MigrateKey, "true");
         Environment.SetEnvironmentVariable(SigningKeyKey, CreateEs256PrivateKeyPem());
         Environment.SetEnvironmentVariable(SignupRateLimitKey, "100000");
+        Environment.SetEnvironmentVariable(FeatureFlagGateDemoKey, "true");
         foreach (var (key, value) in WebhookEnvironment)
         {
             Environment.SetEnvironmentVariable(key, value);
@@ -173,6 +180,7 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(MigrateKey, null);
         Environment.SetEnvironmentVariable(SigningKeyKey, null);
         Environment.SetEnvironmentVariable(SignupRateLimitKey, null);
+        Environment.SetEnvironmentVariable(FeatureFlagGateDemoKey, null);
         foreach (var (key, _) in WebhookEnvironment)
         {
             Environment.SetEnvironmentVariable(key, null);

@@ -712,6 +712,11 @@ rewrite:
   and `seat_limit` already exist on the tenant; entitlements gate the permission
   catalogue (section 15) and features per plan. DESIGNED and being built out -
   see [billing-and-entitlements.md](billing-and-entitlements.md).
+- **Feature flags**: an operator flag catalogue plus per-tenant / per-workspace
+  overrides and a resolver, for rollout, dark launch, and kill switches - distinct
+  from entitlements (operational, fails closed, on a release timeline; a
+  capability may sit behind both). DESIGNED and being built out - see
+  [feature-flags.md](feature-flags.md).
 - **A first-class, queryable audit log**: distinct from `domain_events`; a
   projection built by a consumer off the outbox (the impersonation grant is the
   first audited action). DESIGNED and being built out - see

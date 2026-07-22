@@ -34,6 +34,19 @@ public static class PlatformPersistence
         // like the context it reads, and never touches the bypass data source.
         services.AddScoped<Auth.IEntitlementSource, EntitlementSource>();
 
+        // The feature-flag evaluator (feature-flags.md section 3): resolves a flag
+        // against the no-RLS platform.feature_flags catalogue and the RLS-scoped
+        // platform.feature_flag_overrides through the request-scoped
+        // PlatformDbContext, fail-closed, with a per-request cache. Request-scoped
+        // like the context it reads (the cache is per request), and never touches the
+        // bypass data source.
+        services.AddScoped<Auth.IFeatureFlagEvaluator, FeatureFlagEvaluator>();
+
+        // The tenant feature-flag override control plane (feature-flags.md section
+        // 5): RLS-bound set/clear of the tenant's own overrides, gated at the endpoint
+        // by feature-flags:manage. Request-scoped like the webhook admin service.
+        services.AddScoped<IFeatureFlagAdmin, FeatureFlagAdminService>();
+
         // The tenant-admin audit read (RLS-bound, request-scoped) and the
         // super-admin audit read (bypass, cross-tenant).
         services.AddScoped<IAuditQuery, AuditQuery>();

@@ -149,7 +149,14 @@ public sealed class TenantRoleProvisioner
                 // path) creates or edits plans, so a tenant can never edit the
                 // catalogue. REVOKE of an absent grant is a no-op, so this is
                 // idempotent and safe if the plans table has not been created yet.
-                + $"revoke insert, update, delete on platform.plans from {RequestRole};",
+                + $"revoke insert, update, delete on platform.plans from {RequestRole};"
+                // The feature-flag catalogue is operator-managed the same way
+                // (feature-flags.md section 2): the request role may only READ it (the
+                // evaluator resolves against it), never write it. Only the bypass role
+                // (the super-admin path) creates or edits flags. The overrides table
+                // stays normal request-role DML (a tenant admin writes its own,
+                // RLS-scoped). Idempotent (REVOKE of an absent grant is a no-op).
+                + $"revoke insert, update, delete on platform.feature_flags from {RequestRole};",
                 cancellationToken);
         }
     }

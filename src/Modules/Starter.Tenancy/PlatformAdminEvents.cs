@@ -98,6 +98,47 @@ internal static class PlatformAdminEvents
         };
 
     /// <summary>
+    /// platform.feature_flag.created: a super-admin created a feature-flag catalogue
+    /// entry (feature-flags.md section 5). A null-tenant operator action, audited
+    /// SYNCHRONOUSLY through the platform audit writer in the same transaction as the
+    /// catalogue write - never by the async tenant projection. The flag has no Guid
+    /// identity (its key is the pk), so the entity id is empty and the key rides the
+    /// payload (a scalar, no PII).
+    /// </summary>
+    public static DomainEventRecord FeatureFlagCreated(
+        string flagKey,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.feature_flag.created",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { flagKey }, Json),
+        };
+
+    /// <summary>
+    /// platform.feature_flag.updated: a super-admin edited a feature-flag catalogue
+    /// entry (default, rollout, overridable, or archive). Same null-tenant,
+    /// synchronously audited shape as <see cref="FeatureFlagCreated"/>.
+    /// </summary>
+    public static DomainEventRecord FeatureFlagUpdated(
+        string flagKey,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.feature_flag.updated",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { flagKey }, Json),
+        };
+
+    /// <summary>
     /// platform.impersonation.started: an admin started an impersonation session.
     /// Written in the SAME transaction as the grant row, so no impersonation
     /// token exists without this audit record. Actor is the acting admin; the

@@ -465,6 +465,19 @@ if (postgres is not null)
     // delete, delivery log, and replay, all over the active tenant
     // (/api/v1/tenant/webhooks) and gated by RequirePermission(webhooks:manage).
     app.MapWebhookEndpoints();
+    // The tenant feature-flag surface (feature-flags.md section 5): the resolved-flag
+    // list plus the tenant's own tenant/workspace override set/clear, all over the
+    // active tenant (/api/v1/tenant/feature-flags) and gated by
+    // RequirePermission(feature-flags:manage). The super-admin flag catalogue lives on
+    // the platform plane (mapped by MapPlatformAdminEndpoints). The RequireFeatureFlag
+    // endpoint gate ships unused on live routes by design; its demonstration route maps
+    // ONLY when FeatureFlags:GateDemoEnabled is set (the test host), never in production.
+    app.MapTenantFeatureFlagEndpoints();
+    if (builder.Configuration.GetValue<bool>(FeatureFlagEndpoints.GateDemoConfigKey))
+    {
+        app.MapFeatureFlagGateDemoEndpoints();
+    }
+
     // The workspace-scoped view of the Sample resource
     // (/api/v1/workspaces/{workspaceId}/sample/notes): the worked example of a
     // workspace-scoped resource, gated by notes:read / notes:write at the workspace.

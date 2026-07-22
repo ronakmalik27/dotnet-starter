@@ -133,6 +133,41 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
                 .HasDatabaseName("ux_plans_is_default");
         });
 
+        modelBuilder.Entity<FeatureFlagRow>(entity =>
+        {
+            // The operator-owned feature-flag catalogue (feature-flags.md section 2).
+            // No RLS (a global platform table, like plans / platform_admins), so NO
+            // ApplyTenantFilter: the request path (the evaluator) reads it, the
+            // super-admin path edits it on the bypass source. pk is the flag key.
+            // default_enabled is the fixed default; rollout_percentage (nullable)
+            // overrides it via the deterministic bucket when set; archived_at hides
+            // and fail-closes the flag.
+            entity.ToTable("feature_flags");
+            entity.HasKey(e => e.Key);
+            entity.Property(e => e.Key).ValueGeneratedNever();
+            entity.Property(e => e.Description).HasColumnType("text");
+        });
+
+        modelBuilder.Entity<FeatureFlagOverrideRow>(entity =>
+        {
+            // A tenant's own override of a flag (feature-flags.md section 2),
+            // tenant-owned and RLS-enforced (the RLS policy is hand-written in the
+            // migration). The unique (tenant_id, flag_key, scope_type, scope_id) index
+            // uses NULLS NOT DISTINCT - the roles-catalogue idiom, NOT the
+            // role_assignments two-partial-index shape - so a tenant-scope override
+            // (scope_id NULL) is unique per flag and a PUT-as-upsert works when
+            // scope_id is NULL.
+            entity.ToTable("feature_flag_overrides");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FlagKey).HasColumnType("text");
+            entity.Property(e => e.ScopeType).HasColumnType("text");
+            entity.HasIndex(e => new { e.TenantId, e.FlagKey, e.ScopeType, e.ScopeId })
+                .IsUnique()
+                .HasDatabaseName("ux_feature_flag_overrides_tenant_flag_scope")
+                .HasAnnotation("Npgsql:NullsDistinct", false);
+            ApplyTenantFilter(entity);
+        });
+
         modelBuilder.Entity<ImpersonationGrantRow>(entity =>
         {
             // The impersonation audit spine. No RLS; written and read only on
@@ -232,6 +267,12 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
     /// <summary>The operator-owned plan catalogue (no RLS; read on the request path, edited on the bypass path).</summary>
     internal DbSet<PlanRow> Plans => Set<PlanRow>();
+
+    /// <summary>The operator-owned feature-flag catalogue (no RLS; read by the evaluator, edited on the bypass path).</summary>
+    internal DbSet<FeatureFlagRow> FeatureFlags => Set<FeatureFlagRow>();
+
+    /// <summary>The tenant's feature-flag overrides (RLS-enforced; set/cleared on the request path, read by the evaluator).</summary>
+    internal DbSet<FeatureFlagOverrideRow> FeatureFlagOverrides => Set<FeatureFlagOverrideRow>();
 
     /// <summary>The cross-tenant operators (mapping only; the runtime uses raw bypass SQL).</summary>
     internal DbSet<PlatformAdminRow> PlatformAdmins => Set<PlatformAdminRow>();

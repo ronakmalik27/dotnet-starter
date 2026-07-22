@@ -43,6 +43,12 @@ public sealed class AuditLogTests(StarterAppFixture fixture)
         // section 6), not by the async tenant projection.
         "platform.plan.created",
         "platform.plan.updated",
+        // Feature-flag catalogue edits are the same shape (feature-flags.md section
+        // 5): null-tenant operator actions audited synchronously on the platform log.
+        // The tenant-scoped override events (tenancy.feature_flag.*) ARE on the shared
+        // deliverable catalogue, so they are audited by the async projection.
+        "platform.feature_flag.created",
+        "platform.feature_flag.updated",
     };
 
     // Hoisted so the repeated helper argument is not a constant array literal (CA1861).

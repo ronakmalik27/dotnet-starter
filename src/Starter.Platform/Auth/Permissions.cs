@@ -75,6 +75,16 @@ public static class Permissions
     /// </summary>
     public const string WebhooksManage = "webhooks:manage";
 
+    /// <summary>
+    /// Manage the tenant's own feature-flag overrides (feature-flags.md section 5):
+    /// list resolved flags, set, and clear tenant/workspace overrides - but only for
+    /// flags the operator marked tenant-overridable. In the Admin system-role set and
+    /// grantable in a custom role like any non-owner-reserved permission. Not
+    /// self-escalation (it toggles rollout state, not authority), so it is grantable
+    /// to a service account too.
+    /// </summary>
+    public const string FeatureFlagsManage = "feature-flags:manage";
+
     /// <summary>Owner-reserved: rename or reconfigure the tenant. Never grantable in a custom role.</summary>
     public const string TenantManage = "tenant:manage";
 
@@ -105,6 +115,7 @@ public static class Permissions
         AuditRead,
         ApiKeysManage,
         WebhooksManage,
+        FeatureFlagsManage,
         TenantManage,
         TenantDelete,
         TenantTransferOwnership,

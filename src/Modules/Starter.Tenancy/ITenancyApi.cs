@@ -192,6 +192,47 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result> AssignPlanAsync(
         Guid actorUserId, Guid tenantId, string planKey, CancellationToken cancellationToken);
 
+    // --- Feature-flag catalogue (operator-owned, bypass path) --------------
+    // The feature-flag catalogue (feature-flags.md sections 2, 5) is global operator
+    // vocabulary, edited only on the bypass path behind RequirePlatformAdmin. Flags
+    // fail CLOSED, so the catalogue seeds empty. Tenant-scoped override management is
+    // a separate request-path surface (IFeatureFlagAdmin), gated by feature-flags:manage.
+
+    /// <summary>Lists the feature-flag catalogue: key, description, default, rollout (null = no rollout), overridable, archived, timestamps.</summary>
+    Task<IReadOnlyList<(string Key, string Description, bool DefaultEnabled, int? RolloutPercentage, bool TenantOverridable, bool Archived, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListFeatureFlagsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a feature-flag catalogue entry; audited synchronously on the platform
+    /// audit log. <paramref name="rolloutPercentage"/> null means no rollout (use
+    /// <paramref name="defaultEnabled"/>); a value must be 0..100. A duplicate key is
+    /// a Conflict.
+    /// </summary>
+    Task<Result> CreateFeatureFlagAsync(
+        Guid actorUserId,
+        string key,
+        string description,
+        bool defaultEnabled,
+        int? rolloutPercentage,
+        bool tenantOverridable,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Updates a feature-flag catalogue entry (PATCH semantics: a null argument
+    /// leaves that facet unchanged). <paramref name="archived"/> true archives (the
+    /// flag then resolves OFF and is hidden), false unarchives, null leaves it. An
+    /// unknown key is a NotFound. Audited synchronously.
+    /// </summary>
+    Task<Result> UpdateFeatureFlagAsync(
+        Guid actorUserId,
+        string key,
+        string? description,
+        bool? defaultEnabled,
+        int? rolloutPercentage,
+        bool? tenantOverridable,
+        bool? archived,
+        CancellationToken cancellationToken);
+
     // --- Tenant-admin control plane (active tenant, request path under RLS) ---
     // Every command below operates on the ACTIVE tenant resolved from the tid
     // claim; the endpoint gates each with RequireTenant + RequireTenantRole

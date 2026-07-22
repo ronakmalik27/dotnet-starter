@@ -115,6 +115,33 @@ internal sealed class TenancyApi(
         Guid actorUserId, Guid tenantId, string planKey, CancellationToken cancellationToken) =>
         platform.AssignPlanAsync(actorUserId, tenantId, planKey, cancellationToken);
 
+    public Task<IReadOnlyList<(string Key, string Description, bool DefaultEnabled, int? RolloutPercentage, bool TenantOverridable, bool Archived, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListFeatureFlagsAsync(CancellationToken cancellationToken) =>
+        platform.ListFeatureFlagsAsync(cancellationToken);
+
+    public Task<Result> CreateFeatureFlagAsync(
+        Guid actorUserId,
+        string key,
+        string description,
+        bool defaultEnabled,
+        int? rolloutPercentage,
+        bool tenantOverridable,
+        CancellationToken cancellationToken) =>
+        platform.CreateFeatureFlagAsync(
+            actorUserId, key, description, defaultEnabled, rolloutPercentage, tenantOverridable, cancellationToken);
+
+    public Task<Result> UpdateFeatureFlagAsync(
+        Guid actorUserId,
+        string key,
+        string? description,
+        bool? defaultEnabled,
+        int? rolloutPercentage,
+        bool? tenantOverridable,
+        bool? archived,
+        CancellationToken cancellationToken) =>
+        platform.UpdateFeatureFlagAsync(
+            actorUserId, key, description, defaultEnabled, rolloutPercentage, tenantOverridable, archived, cancellationToken);
+
     public Task<TenantRole?> GetCallerRoleAsync(Guid userId, CancellationToken cancellationToken) =>
         roles.GetCallerRoleAsync(userId, cancellationToken);
 

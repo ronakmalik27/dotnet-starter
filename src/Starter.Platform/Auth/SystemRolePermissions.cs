@@ -66,6 +66,12 @@ public static class SystemRolePermissions
             // in a custom role like any non-owner-reserved permission, and (unlike keys)
             // grantable to a service account too - it is not self-escalation.
             Permissions.WebhooksManage,
+            // Managing the tenant's own feature-flag overrides is admin work
+            // (feature-flags.md section 5): Admins and Owners set/clear overrides for
+            // operator-overridable flags. Grantable in a custom role like any
+            // non-owner-reserved permission, and (like webhooks) grantable to a service
+            // account too - it is not self-escalation.
+            Permissions.FeatureFlagsManage,
         ])
         .ToFrozenSet(StringComparer.Ordinal);
 

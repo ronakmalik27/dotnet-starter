@@ -53,6 +53,11 @@ internal static class DeliverableEvents
         WebhookEvents.EndpointUpdatedType,
         WebhookEvents.EndpointDeletedType,
         WebhookEvents.SecretRotatedType,
+        // feature-flag override changes (feature-flags.md section 5): defined in
+        // Platform (FeatureFlagEvents) because the feature cannot reference the
+        // Tenancy module, but tenant-scoped like the rest.
+        Data.FeatureFlagEvents.OverrideSetType,
+        Data.FeatureFlagEvents.OverrideClearedType,
         // tenant-scoped platform events (carry the target tenant)
         "platform.impersonation.started",
         "platform.impersonation.ended",

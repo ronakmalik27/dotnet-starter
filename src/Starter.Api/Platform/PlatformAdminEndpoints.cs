@@ -46,6 +46,10 @@ public static class PlatformAdminEndpoints
         platform.MapPatch("/plans/{key}", UpdatePlanAsync);
         platform.MapPost("/tenants/{id:guid}/plan", AssignPlanAsync);
 
+        platform.MapGet("/feature-flags", ListFeatureFlagsAsync);
+        platform.MapPost("/feature-flags", CreateFeatureFlagAsync);
+        platform.MapPatch("/feature-flags/{key}", UpdateFeatureFlagAsync);
+
         platform.MapGet("/admins", ListAdminsAsync);
         platform.MapPost("/admins", GrantAdminAsync);
         platform.MapDelete("/admins/{userId:guid}", RevokeAdminAsync);
@@ -187,6 +191,86 @@ public static class PlatformAdminEndpoints
         }
 
         var result = await tenancy.AssignPlanAsync(actor.Value, id, request.Plan, cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
+    private static async Task<IResult> ListFeatureFlagsAsync(
+        ITenancyApi tenancy, CancellationToken cancellationToken)
+    {
+        var flags = await tenancy.ListFeatureFlagsAsync(cancellationToken);
+        var items = flags
+            .Select(flag => new FeatureFlagResponse(
+                flag.Key,
+                flag.Description,
+                flag.DefaultEnabled,
+                flag.RolloutPercentage,
+                flag.TenantOverridable,
+                flag.Archived,
+                flag.CreatedAt,
+                flag.UpdatedAt))
+            .ToList();
+        return Results.Ok(items);
+    }
+
+    private static async Task<IResult> CreateFeatureFlagAsync(
+        CreateFeatureFlagRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Key))
+        {
+            return Validation(http, "key", "A flag key is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Description))
+        {
+            return Validation(http, "description", "A flag description is required.");
+        }
+
+        var result = await tenancy.CreateFeatureFlagAsync(
+            actor.Value,
+            request.Key,
+            request.Description,
+            request.DefaultEnabled ?? false,
+            request.RolloutPercentage,
+            request.TenantOverridable ?? false,
+            cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
+    private static async Task<IResult> UpdateFeatureFlagAsync(
+        string key,
+        UpdateFeatureFlagRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await tenancy.UpdateFeatureFlagAsync(
+            actor.Value,
+            key,
+            request.Description,
+            request.DefaultEnabled,
+            request.RolloutPercentage,
+            request.TenantOverridable,
+            request.Archived,
+            cancellationToken);
         return result.Match(
             () => Results.NoContent(),
             error => PlatformAdminProblems.From(http, error));
@@ -365,6 +449,44 @@ public sealed record UpdatePlanRequest(
 
 /// <summary>POST /api/v1/platform/tenants/{id}/plan body: the plan key to assign.</summary>
 public sealed record AssignPlanRequest(string? Plan);
+
+/// <summary>
+/// GET /api/v1/platform/feature-flags item (feature-flags.md section 5). Null
+/// <paramref name="RolloutPercentage"/> means no rollout (the flag uses
+/// <paramref name="DefaultEnabled"/>); <paramref name="Archived"/> true means the
+/// flag resolves OFF and is hidden from the tenant surface.
+/// </summary>
+public sealed record FeatureFlagResponse(
+    string Key,
+    string Description,
+    bool DefaultEnabled,
+    int? RolloutPercentage,
+    bool TenantOverridable,
+    bool Archived,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>
+/// POST /api/v1/platform/feature-flags body. Omit <paramref name="RolloutPercentage"/>
+/// (or send null) for no rollout; a value must be 0..100.
+/// </summary>
+public sealed record CreateFeatureFlagRequest(
+    string? Key,
+    string? Description,
+    bool? DefaultEnabled,
+    int? RolloutPercentage,
+    bool? TenantOverridable);
+
+/// <summary>
+/// PATCH /api/v1/platform/feature-flags/{key} body. A null field leaves that facet
+/// unchanged; <paramref name="Archived"/> true archives, false unarchives, null leaves it.
+/// </summary>
+public sealed record UpdateFeatureFlagRequest(
+    string? Description,
+    bool? DefaultEnabled,
+    int? RolloutPercentage,
+    bool? TenantOverridable,
+    bool? Archived);
 
 /// <summary>GET /api/v1/platform/admins item.</summary>
 public sealed record PlatformAdminResponse(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt);

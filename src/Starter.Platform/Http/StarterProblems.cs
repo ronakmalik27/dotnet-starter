@@ -214,6 +214,24 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 403 for a tenant admin trying to override a feature flag the operator did not
+    /// mark tenant-overridable (feature-flags.md section 5). The operator holds the
+    /// flag centrally; a tenant cannot touch it. Not 404 - the flag is listed on the
+    /// tenant surface, so the honest answer is "you may not override this one".
+    /// </summary>
+    public static ProblemDetails FlagNotOverridable(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status403Forbidden,
+            ProblemTypes.FlagNotOverridable,
+            "This feature flag cannot be overridden by a tenant.",
+            "The operator holds this flag centrally; a tenant cannot set or clear an override for it.");
+    }
+
+    /// <summary>
     /// 403 for an authenticated caller who is not a platform super-admin hitting
     /// a platform control-plane endpoint (multi-tenancy.md section 7). Platform
     /// power is membership of platform.platform_admins, never a tenant role.

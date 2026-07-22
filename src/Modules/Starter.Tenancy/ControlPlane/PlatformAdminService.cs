@@ -50,6 +50,9 @@ internal sealed class PlatformAdminService(
     private static readonly Error PlanNotFound = new(
         ErrorKind.NotFound, "platform.plan_not_found", "No such plan.");
 
+    private static readonly Error FeatureFlagNotFound = new(
+        ErrorKind.NotFound, "platform.feature_flag_not_found", "No such feature flag.");
+
     // --- Tenants (cross-tenant reads on the bypass path) ------------------
 
     public async Task<IReadOnlyList<(Guid Id, string Slug, string Name, string Status, string? Plan, int SeatLimit, DateTimeOffset CreatedAt)>>
@@ -402,6 +405,182 @@ internal sealed class PlatformAdminService(
         await db.SaveChangesAsync(cancellationToken);
         await outbox.EnqueueAsync(
             db, TenancyEvents.TenantPlanChanged(tenantId, oldPlan, planKey, actorUserId, now), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    // --- Feature flags (operator catalogue on platform.feature_flags, bypass-path) -
+    // The feature-flag catalogue is a no-RLS platform table (feature-flags.md
+    // section 2), the plan-CRUD pattern: raw SQL on the bypass connection, audited
+    // SYNCHRONOUSLY through the platform audit writer in the same transaction as the
+    // catalogue write. Feature flags fail CLOSED, so nothing is seeded (a flag is a
+    // deliberate operator act; there is nothing to gate until one is defined).
+
+    public async Task<IReadOnlyList<(string Key, string Description, bool DefaultEnabled, int? RolloutPercentage, bool TenantOverridable, bool Archived, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListFeatureFlagsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select key, description, default_enabled, rollout_percentage, tenant_overridable, "
+            + "archived_at, created_at, updated_at from platform.feature_flags order by created_at, key",
+            connection);
+
+        var flags =
+            new List<(string, string, bool, int?, bool, bool, DateTimeOffset, DateTimeOffset)>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var rollout = await reader.IsDBNullAsync(3, cancellationToken)
+                ? (int?)null
+                : reader.GetInt32(3);
+            var archived = !await reader.IsDBNullAsync(5, cancellationToken);
+            flags.Add((
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetBoolean(2),
+                rollout,
+                reader.GetBoolean(4),
+                archived,
+                reader.GetFieldValue<DateTimeOffset>(6),
+                reader.GetFieldValue<DateTimeOffset>(7)));
+        }
+
+        return flags;
+    }
+
+    public async Task<Result> CreateFeatureFlagAsync(
+        Guid actorUserId,
+        string key,
+        string description,
+        bool defaultEnabled,
+        int? rolloutPercentage,
+        bool tenantOverridable,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(description);
+
+        key = key.Trim();
+        description = description.Trim();
+        if (ValidateFeatureFlagShape(key, description, rolloutPercentage) is { } validation)
+        {
+            return Result.Failure(validation);
+        }
+
+        var now = clock.UtcNow;
+
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        try
+        {
+            await using var insert = new NpgsqlCommand(
+                "insert into platform.feature_flags "
+                + "(key, description, default_enabled, rollout_percentage, tenant_overridable, "
+                + "archived_at, created_at, updated_at) "
+                + "values (@key, @description, @default, @rollout, @overridable, null, @now, @now)",
+                connection,
+                dbTransaction);
+            insert.Parameters.AddWithValue("key", key);
+            insert.Parameters.AddWithValue("description", description);
+            insert.Parameters.AddWithValue("default", defaultEnabled);
+            insert.Parameters.Add(new NpgsqlParameter("rollout", NpgsqlDbType.Integer)
+            {
+                Value = (object?)rolloutPercentage ?? DBNull.Value,
+            });
+            insert.Parameters.AddWithValue("overridable", tenantOverridable);
+            insert.Parameters.AddWithValue("now", now);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Result.Failure(new Error(
+                ErrorKind.Conflict,
+                "platform.feature_flag_key_taken",
+                "A feature flag with that key already exists."));
+        }
+
+        var created = PlatformAdminEvents.FeatureFlagCreated(key, actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, created, subjectUserId: null, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    public async Task<Result> UpdateFeatureFlagAsync(
+        Guid actorUserId,
+        string key,
+        string? description,
+        bool? defaultEnabled,
+        int? rolloutPercentage,
+        bool? tenantOverridable,
+        bool? archived,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key = key.Trim();
+        description = description?.Trim();
+
+        if (description is { Length: 0 })
+        {
+            return Result.Failure(new Error(
+                ErrorKind.Validation, "platform.feature_flag_description_required", "A description cannot be empty."));
+        }
+
+        if (rolloutPercentage is < 0 or > 100)
+        {
+            return Result.Failure(RolloutOutOfRange);
+        }
+
+        var now = clock.UtcNow;
+
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        // Lock the row (FOR UPDATE) and rewrite it whole, so a null argument means
+        // "unchanged" rather than "set null" - the PATCH tri-state. rollout stays a
+        // set-or-keep facet (clearing a rollout is not offered here). archived is a
+        // tri-state too: true archives (archived_at = now), false unarchives (null),
+        // null leaves it.
+        var existing = await ReadFeatureFlagForUpdateAsync(connection, dbTransaction, key, cancellationToken);
+        if (existing is null)
+        {
+            return Result.Failure(FeatureFlagNotFound);
+        }
+
+        var newArchivedAt = archived switch
+        {
+            true => existing.Value.ArchivedAt ?? now,
+            false => (DateTimeOffset?)null,
+            null => existing.Value.ArchivedAt,
+        };
+
+        await using var update = new NpgsqlCommand(
+            "update platform.feature_flags set "
+            + "description = @description, default_enabled = @default, rollout_percentage = @rollout, "
+            + "tenant_overridable = @overridable, archived_at = @archived, updated_at = @now where key = @key",
+            connection,
+            dbTransaction);
+        update.Parameters.AddWithValue("key", key);
+        update.Parameters.AddWithValue("description", description ?? existing.Value.Description);
+        update.Parameters.AddWithValue("default", defaultEnabled ?? existing.Value.DefaultEnabled);
+        update.Parameters.Add(new NpgsqlParameter("rollout", NpgsqlDbType.Integer)
+        {
+            Value = (object?)(rolloutPercentage ?? existing.Value.RolloutPercentage) ?? DBNull.Value,
+        });
+        update.Parameters.AddWithValue("overridable", tenantOverridable ?? existing.Value.TenantOverridable);
+        update.Parameters.Add(new NpgsqlParameter("archived", NpgsqlDbType.TimestampTz)
+        {
+            Value = (object?)newArchivedAt ?? DBNull.Value,
+        });
+        update.Parameters.AddWithValue("now", now);
+        await update.ExecuteNonQueryAsync(cancellationToken);
+
+        var updated = PlatformAdminEvents.FeatureFlagUpdated(key, actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, updated, subjectUserId: null, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return Result.Success();
@@ -892,4 +1071,60 @@ internal sealed class PlatformAdminService(
 
     private readonly record struct PlanRowValues(
         string Name, string[]? Features, string[]? Permissions, string Limits, bool IsDefault);
+
+    // --- Feature-flag helpers ---------------------------------------------
+
+    private static readonly Error RolloutOutOfRange = new(
+        ErrorKind.Validation,
+        "platform.feature_flag_rollout_range",
+        "A rollout percentage must be between 0 and 100.");
+
+    private static Error? ValidateFeatureFlagShape(string key, string description, int? rolloutPercentage)
+    {
+        if (key.Length == 0 || key.Length > 64)
+        {
+            return new Error(
+                ErrorKind.Validation, "platform.feature_flag_key_invalid", "A flag key must be 1-64 characters.");
+        }
+
+        if (description.Length == 0)
+        {
+            return new Error(
+                ErrorKind.Validation, "platform.feature_flag_description_required", "A description is required.");
+        }
+
+        return rolloutPercentage is < 0 or > 100 ? RolloutOutOfRange : null;
+    }
+
+    private static async Task<FeatureFlagRowValues?> ReadFeatureFlagForUpdateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select description, default_enabled, rollout_percentage, tenant_overridable, archived_at "
+            + "from platform.feature_flags where key = @key for update",
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("key", key);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var rollout = await reader.IsDBNullAsync(2, cancellationToken)
+            ? (int?)null
+            : reader.GetInt32(2);
+        var archivedAt = await reader.IsDBNullAsync(4, cancellationToken)
+            ? (DateTimeOffset?)null
+            : reader.GetFieldValue<DateTimeOffset>(4);
+        return new FeatureFlagRowValues(
+            reader.GetString(0), reader.GetBoolean(1), rollout, reader.GetBoolean(3), archivedAt);
+    }
+
+    private readonly record struct FeatureFlagRowValues(
+        string Description, bool DefaultEnabled, int? RolloutPercentage, bool TenantOverridable, DateTimeOffset? ArchivedAt);
 }
