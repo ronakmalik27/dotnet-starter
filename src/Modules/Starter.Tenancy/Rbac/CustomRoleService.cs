@@ -348,10 +348,12 @@ internal sealed class CustomRoleService(
         ArgumentNullException.ThrowIfNull(principalType);
         ArgumentNullException.ThrowIfNull(scopeType);
 
-        if (principalType is not (PrincipalType.User or PrincipalType.Team))
+        if (principalType is not (PrincipalType.User or PrincipalType.Team or PrincipalType.ServiceAccount))
         {
             return Result.Failure<Guid>(new Error(
-                ErrorKind.Validation, "tenancy.principal_type_invalid", "principalType must be user or team."));
+                ErrorKind.Validation,
+                "tenancy.principal_type_invalid",
+                "principalType must be user, team, or service_account."));
         }
 
         if (scopeType is not (AssignmentScope.Tenant or AssignmentScope.Workspace))
@@ -373,6 +375,41 @@ internal sealed class CustomRoleService(
         var now = clock.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
+        var result = await AssignRoleCoreAsync(
+            callerUserId, roleId, principalType, principalId, scopeType, normalizedScopeId, now, cancellationToken);
+        if (result.IsFailure)
+        {
+            // Dispose (below) rolls back; nothing was committed.
+            return result;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    /// <summary>
+    /// The scope- and principal-validated grant, run inside an ALREADY-OPEN
+    /// transaction on the shared context (so the tenant interceptor's RLS GUC is
+    /// set): it validates and inserts the assignment and enqueues the granted
+    /// event, but never opens or commits a transaction - the caller owns that.
+    /// The tenant-scope assign path (<see cref="AssignRoleAsync"/>) wraps it; the
+    /// service-account create-with-role path (<c>ServiceAccountService</c>) calls
+    /// it in the SAME transaction as the account insert, so a self-escalation
+    /// refusal rolls the whole create back (service-accounts.md section 4). The
+    /// shape checks (principal type, scope kind, scope-id presence) are the
+    /// caller's; this validates against tenant data. <paramref name="scopeId"/> is
+    /// already normalized (null for tenant scope).
+    /// </summary>
+    internal async Task<Result<Guid>> AssignRoleCoreAsync(
+        Guid callerUserId,
+        Guid roleId,
+        string principalType,
+        Guid principalId,
+        string scopeType,
+        Guid? scopeId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         var role = await db.Roles
             .AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == roleId, cancellationToken);
@@ -387,7 +424,7 @@ internal sealed class CustomRoleService(
         // intended. This is checked before the assignable-scope rule so the
         // message is specific to the scope-mismatch case.
         if (role.WorkspaceId is Guid roleWorkspace
-            && (scopeType != AssignmentScope.Workspace || normalizedScopeId != roleWorkspace))
+            && (scopeType != AssignmentScope.Workspace || scopeId != roleWorkspace))
         {
             return Result.Failure<Guid>(new Error(
                 ErrorKind.Validation,
@@ -404,6 +441,27 @@ internal sealed class CustomRoleService(
                 $"This role cannot be assigned at {scopeType} scope."));
         }
 
+        // A service account cannot be granted the self-escalation primitives
+        // (service-accounts.md section 4): a role whose permission set intersects
+        // {roles:manage, api-keys:manage} is refused to a service-account
+        // principal, so a leaked or over-scoped key cannot expand its OWN
+        // authority. The same role assigns fine to a user or team. Read the role's
+        // permissions and intersect in memory (a role carries few); the check runs
+        // for BOTH the direct assign path and create-with-initial-role, since both
+        // reach here.
+        if (principalType == PrincipalType.ServiceAccount)
+        {
+            var permissions = await db.RolePermissions
+                .AsNoTracking()
+                .Where(permission => permission.RoleId == roleId)
+                .Select(permission => permission.Permission)
+                .ToListAsync(cancellationToken);
+            if (permissions.Any(Permissions.IsNotServiceAccountGrantable))
+            {
+                return Result.Failure<Guid>(PermissionNotAutomatable);
+            }
+        }
+
         // A workspace-scope grant must name a workspace that exists in this tenant
         // (RLS-scoped read); the endpoint's RequireWorkspace gate already checked
         // it, but the service holds the rule for any caller.
@@ -411,7 +469,7 @@ internal sealed class CustomRoleService(
         {
             var workspaceExists = await db.Workspaces
                 .AsNoTracking()
-                .AnyAsync(workspace => workspace.Id == normalizedScopeId, cancellationToken);
+                .AnyAsync(workspace => workspace.Id == scopeId, cancellationToken);
             if (!workspaceExists)
             {
                 return Result.Failure<Guid>(WorkspaceNotFound);
@@ -419,36 +477,66 @@ internal sealed class CustomRoleService(
         }
 
         // The principal must exist in the active tenant (RLS-scoped read): a user
-        // principal must be an ACTIVE member; a team principal must be a real team.
-        // Both reads are RLS-bound, so a principal from another tenant is invisible
-        // and fails validation like any absent one.
-        if (principalType == PrincipalType.User)
+        // principal must be an ACTIVE member; a team principal must be a real team;
+        // a service-account principal must be a real account that is neither
+        // revoked nor past its expiry (a revoked/expired account can no more
+        // receive a new grant than a suspended member). All reads are RLS-bound,
+        // so a principal from another tenant is invisible and fails validation.
+        switch (principalType)
         {
-            var isActiveMember = await db.Memberships
-                .AsNoTracking()
-                .AnyAsync(
-                    membership => membership.UserId == principalId
-                        && membership.Status == MembershipStatus.Active,
-                    cancellationToken);
-            if (!isActiveMember)
+            case PrincipalType.User:
             {
-                return Result.Failure<Guid>(new Error(
-                    ErrorKind.Validation,
-                    "tenancy.principal_not_member",
-                    "The target user is not an active member of this tenant."));
+                var isActiveMember = await db.Memberships
+                    .AsNoTracking()
+                    .AnyAsync(
+                        membership => membership.UserId == principalId
+                            && membership.Status == MembershipStatus.Active,
+                        cancellationToken);
+                if (!isActiveMember)
+                {
+                    return Result.Failure<Guid>(new Error(
+                        ErrorKind.Validation,
+                        "tenancy.principal_not_member",
+                        "The target user is not an active member of this tenant."));
+                }
+
+                break;
             }
-        }
-        else
-        {
-            var teamExists = await db.Teams
-                .AsNoTracking()
-                .AnyAsync(team => team.Id == principalId, cancellationToken);
-            if (!teamExists)
+
+            case PrincipalType.Team:
             {
-                return Result.Failure<Guid>(new Error(
-                    ErrorKind.Validation,
-                    "tenancy.principal_team_not_found",
-                    "The target team does not exist in this tenant."));
+                var teamExists = await db.Teams
+                    .AsNoTracking()
+                    .AnyAsync(team => team.Id == principalId, cancellationToken);
+                if (!teamExists)
+                {
+                    return Result.Failure<Guid>(new Error(
+                        ErrorKind.Validation,
+                        "tenancy.principal_team_not_found",
+                        "The target team does not exist in this tenant."));
+                }
+
+                break;
+            }
+
+            default:
+            {
+                var accountValid = await db.ServiceAccounts
+                    .AsNoTracking()
+                    .AnyAsync(
+                        account => account.Id == principalId
+                            && account.RevokedAt == null
+                            && (account.ExpiresAt == null || account.ExpiresAt > now),
+                        cancellationToken);
+                if (!accountValid)
+                {
+                    return Result.Failure<Guid>(new Error(
+                        ErrorKind.Validation,
+                        "tenancy.principal_not_service_account",
+                        "The target service account does not exist, or is revoked or expired, in this tenant."));
+                }
+
+                break;
             }
         }
 
@@ -459,7 +547,7 @@ internal sealed class CustomRoleService(
                     && assignment.PrincipalId == principalId
                     && assignment.RoleId == roleId
                     && assignment.ScopeType == scopeType
-                    && assignment.ScopeId == normalizedScopeId,
+                    && assignment.ScopeId == scopeId,
                 cancellationToken);
         if (alreadyAssigned)
         {
@@ -474,7 +562,7 @@ internal sealed class CustomRoleService(
             PrincipalId = principalId,
             RoleId = roleId,
             ScopeType = scopeType,
-            ScopeId = normalizedScopeId,
+            ScopeId = scopeId,
             GrantedBy = callerUserId,
             CreatedAt = now,
         };
@@ -493,7 +581,6 @@ internal sealed class CustomRoleService(
             db,
             TenancyEvents.RoleAssignmentGranted(assignmentRow.Id, roleId, principalId, callerUserId, now),
             cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
 
         return Result.Success(assignmentRow.Id);
     }
@@ -585,6 +672,12 @@ internal sealed class CustomRoleService(
 
     private static readonly Error AssignmentExists = new(
         ErrorKind.Conflict, "tenancy.assignment_exists", "That role is already assigned to the principal at this scope.");
+
+    private static readonly Error PermissionNotAutomatable = new(
+        ErrorKind.Validation,
+        "tenancy.permission_not_automatable",
+        "This role cannot be assigned to a service account: it grants a self-escalation "
+        + "permission (roles:manage or api-keys:manage) that an unattended credential must not hold.");
 
     private static List<string> Distinct(IReadOnlyCollection<string> permissions) =>
         permissions

@@ -42,6 +42,11 @@ internal static class TenancyProblems
             http, ProblemTypes.TeamNotFound, "The team does not exist.", error.Message),
         "tenancy.team_member_exists" => Conflict(
             http, ProblemTypes.TeamMemberExists, "That user is already a team member.", error.Message),
+        "tenancy.permission_not_automatable" => Unprocessable(
+            http,
+            ProblemTypes.PermissionNotAutomatable,
+            "This role cannot be assigned to a service account.",
+            error.Message),
         _ => error.ToProblemResult(http),
     };
 
@@ -50,6 +55,9 @@ internal static class TenancyProblems
 
     private static ProblemHttpResult NotFound(HttpContext http, string type, string title, string detail) =>
         Build(http, StatusCodes.Status404NotFound, type, title, detail);
+
+    private static ProblemHttpResult Unprocessable(HttpContext http, string type, string title, string detail) =>
+        Build(http, StatusCodes.Status422UnprocessableEntity, type, title, detail);
 
     private static ProblemHttpResult Build(HttpContext http, int status, string type, string title, string detail)
     {

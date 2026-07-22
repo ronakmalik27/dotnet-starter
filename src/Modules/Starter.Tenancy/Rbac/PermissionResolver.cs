@@ -37,29 +37,101 @@ namespace Starter.Tenancy.Rbac;
 /// </summary>
 internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResolver
 {
-    // Cache key: (caller, workspace). A null workspace is the tenant-scope set; a
-    // non-null workspace is that workspace's set. One request touches at most two
-    // keys (tenant plus one workspace), so a small dictionary is right-sized.
-    private readonly Dictionary<(Guid UserId, Guid? WorkspaceId), IReadOnlySet<string>> _cache = new();
+    // Cache key: (principal, workspace, principalType). A null workspace is the
+    // tenant-scope set; a non-null workspace is that workspace's set. The
+    // principal type is folded in so the resolver stays correct if a future caller
+    // ever resolves more than one principal in a scope (today one request is one
+    // principal, so a collision cannot occur - service-accounts.md section 4). One
+    // request touches at most two keys, so a small dictionary is right-sized.
+    private readonly Dictionary<(Guid PrincipalId, Guid? WorkspaceId, string PrincipalType), IReadOnlySet<string>> _cache = new();
 
     public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
         Guid userId, CancellationToken cancellationToken) =>
-        GetAsync(userId, workspaceId: null, cancellationToken);
+        GetAsync(userId, workspaceId: null, PrincipalTypes.User, cancellationToken);
 
     public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
         Guid userId, Guid workspaceId, CancellationToken cancellationToken) =>
-        GetAsync(userId, workspaceId, cancellationToken);
+        GetAsync(userId, workspaceId, PrincipalTypes.User, cancellationToken);
+
+    /// <summary>
+    /// The caller's effective permissions at TENANT scope, for a caller of the
+    /// given principal type (service-accounts.md section 4). A user (the default)
+    /// takes the membership + system-role + grants path; a service account skips
+    /// the membership gate and resolves ONLY its own service-account grants.
+    /// </summary>
+    public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid principalId, string principalType, CancellationToken cancellationToken) =>
+        GetAsync(principalId, workspaceId: null, principalType, cancellationToken);
+
+    /// <summary>The principal-typed overload AT A WORKSPACE; same semantics, workspace-scope grants included.</summary>
+    public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid principalId, Guid workspaceId, string principalType, CancellationToken cancellationToken) =>
+        GetAsync(principalId, workspaceId, principalType, cancellationToken);
 
     private async Task<IReadOnlySet<string>> GetAsync(
-        Guid userId, Guid? workspaceId, CancellationToken cancellationToken)
+        Guid principalId, Guid? workspaceId, string principalType, CancellationToken cancellationToken)
     {
-        if (_cache.TryGetValue((userId, workspaceId), out var cached))
+        if (_cache.TryGetValue((principalId, workspaceId, principalType), out var cached))
         {
             return cached;
         }
 
-        var permissions = await ResolveAsync(userId, workspaceId, cancellationToken);
-        _cache[(userId, workspaceId)] = permissions;
+        var permissions = principalType == PrincipalTypes.ServiceAccount
+            ? await ResolveServiceAccountAsync(principalId, workspaceId, cancellationToken)
+            : await ResolveAsync(principalId, workspaceId, cancellationToken);
+        _cache[(principalId, workspaceId, principalType)] = permissions;
+        return permissions;
+    }
+
+    // A service account has NO membership and NO system role: its effective set is
+    // exactly its own service-account grants at tenant scope and (for a workspace
+    // request) the requested workspace scope, with NO team union
+    // (service-accounts.md section 4). Fail-closed: an account with no grants
+    // resolves to the empty set and every gate 403s it. This runs on the RLS
+    // request path (tid was bound from the key), so the grants are read under the
+    // account's own tenant's boundary.
+    private async Task<IReadOnlySet<string>> ResolveServiceAccountAsync(
+        Guid serviceAccountId, Guid? workspaceId, CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var permissions = new HashSet<string>(StringComparer.Ordinal);
+
+        var tenantGrants = await (
+            from assignment in db.RoleAssignments.AsNoTracking()
+            where assignment.ScopeType == AssignmentScope.Tenant
+                && assignment.PrincipalType == PrincipalType.ServiceAccount
+                && assignment.PrincipalId == serviceAccountId
+            join permission in db.RolePermissions.AsNoTracking()
+                on assignment.RoleId equals permission.RoleId
+            select permission.Permission)
+            .ToListAsync(cancellationToken);
+
+        foreach (var permission in tenantGrants)
+        {
+            permissions.Add(permission);
+        }
+
+        if (workspaceId is Guid scope)
+        {
+            var workspaceGrants = await (
+                from assignment in db.RoleAssignments.AsNoTracking()
+                where assignment.ScopeType == AssignmentScope.Workspace
+                    && assignment.ScopeId == scope
+                    && assignment.PrincipalType == PrincipalType.ServiceAccount
+                    && assignment.PrincipalId == serviceAccountId
+                join permission in db.RolePermissions.AsNoTracking()
+                    on assignment.RoleId equals permission.RoleId
+                select permission.Permission)
+                .ToListAsync(cancellationToken);
+
+            foreach (var permission in workspaceGrants)
+            {
+                permissions.Add(permission);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
         return permissions;
     }
 

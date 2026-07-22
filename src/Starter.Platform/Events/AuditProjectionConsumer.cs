@@ -76,6 +76,9 @@ internal sealed class AuditProjectionConsumer : IDomainEventConsumer
         "tenancy.team.deleted",
         "tenancy.team.member_added",
         "tenancy.team.member_removed",
+        "tenancy.service_account.created",
+        "tenancy.service_account.rotated",
+        "tenancy.service_account.revoked",
         // tenant-scoped platform events (carry the target tenant)
         "platform.impersonation.started",
         "platform.impersonation.ended",

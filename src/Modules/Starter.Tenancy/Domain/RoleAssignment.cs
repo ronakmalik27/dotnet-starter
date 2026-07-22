@@ -10,11 +10,13 @@ namespace Starter.Tenancy.Domain;
 /// through a scoped grant. Tenant-owned, under the tenant RLS.
 /// <para>
 /// A grant is at tenant scope (scope_id null, applies tenant-wide) or at one
-/// workspace (scope_id = the workspace). Only the user principal is supported;
-/// the principal_type column is present for the forward-compatible team
-/// increment. Uniqueness is a partial unique index per scope kind (one WHERE
-/// scope_type = 'tenant', one for workspace scope including scope_id), because a
-/// null scope_id would not collide under a plain unique constraint.
+/// workspace (scope_id = the workspace). The principal is a user (a member), a
+/// team (unions into every member's set), or a service_account (a non-human
+/// principal whose effective permissions are exactly its grants,
+/// service-accounts.md section 4). Uniqueness is a partial unique index per scope
+/// kind (one WHERE scope_type = 'tenant', one for workspace scope including
+/// scope_id), because a null scope_id would not collide under a plain unique
+/// constraint.
 /// </para>
 /// </summary>
 internal sealed class RoleAssignment : ITenantOwned
@@ -23,10 +25,10 @@ internal sealed class RoleAssignment : ITenantOwned
 
     public required Guid TenantId { get; init; }
 
-    /// <summary>One of user | team (stored as a string). Only user this increment.</summary>
+    /// <summary>One of user | team | service_account (stored as a string).</summary>
     public required string PrincipalType { get; init; }
 
-    /// <summary>The user id (or, later, team id) the grant binds.</summary>
+    /// <summary>The user, team, or service-account id the grant binds.</summary>
     public required Guid PrincipalId { get; init; }
 
     /// <summary>The custom role granted. FK role_id -> roles(id).</summary>
@@ -50,6 +52,8 @@ internal static class PrincipalType
     public const string User = "user";
 
     public const string Team = "team";
+
+    public const string ServiceAccount = "service_account";
 }
 
 /// <summary>tenancy.role_assignments.scope_type values.</summary>

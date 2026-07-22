@@ -61,6 +61,16 @@ public static class StarterClaims
     public const string Ver = "ver";
 
     /// <summary>
+    /// The caller's principal type (service-accounts.md section 3): present on an
+    /// API-key principal minted by the ApiKey authentication scheme, carrying
+    /// <see cref="PrincipalTypes.ServiceAccount"/>. A JWT access token never
+    /// carries it, so the permission gate defaults an absent claim to
+    /// <see cref="PrincipalTypes.User"/> - a human caller. The value is one of the
+    /// <see cref="PrincipalTypes"/> literals.
+    /// </summary>
+    public const string Pt = "pt";
+
+    /// <summary>
     /// Present only on an impersonation access token: the acting platform
     /// admin's user id. It is a signed claim, so it is unforgeable and every
     /// impersonated request is attributable to the human behind it (multi-

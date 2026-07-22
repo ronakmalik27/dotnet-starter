@@ -5,6 +5,7 @@ using Starter.Tenancy.Admin;
 using Starter.Tenancy.ControlPlane;
 using Starter.Tenancy.Invitations;
 using Starter.Tenancy.Rbac;
+using Starter.Tenancy.ServiceAccounts;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
 using Starter.Platform.Tenancy;
@@ -64,10 +65,20 @@ public static class TenancyModule
             platformOptions.Bind(configuration.GetSection(PlatformAdminOptions.SectionName));
         }
 
+        // The API-key options (Tenancy:ApiKeys), bound when configuration is
+        // present; the default (a 5-minute last_used_at throttle) satisfies a
+        // zero-config host (service-accounts.md section 6).
+        var apiKeys = services.AddOptions<ApiKeyOptions>();
+        if (configuration is not null)
+        {
+            apiKeys.Bind(configuration.GetSection(ApiKeyOptions.SectionName));
+        }
+
         // Bypass-path (cross-tenant control plane) slices.
         services.AddScoped<TenantProvisioner>();
         services.AddScoped<MembershipDirectory>();
         services.AddScoped<InvitationAcceptor>();
+        services.AddScoped<ApiKeyResolver>();
         services.AddScoped<PlatformAdminDirectory>();
         services.AddScoped<PlatformAdminService>();
         services.AddScoped<ImpersonationGrantReader>();
@@ -78,6 +89,7 @@ public static class TenancyModule
         services.AddScoped<CustomRoleService>();
         services.AddScoped<WorkspaceService>();
         services.AddScoped<TeamService>();
+        services.AddScoped<ServiceAccountService>();
         services.AddScoped<TenantAdminService>();
 
         services.AddScoped<ITenancyApi, TenancyApi>();

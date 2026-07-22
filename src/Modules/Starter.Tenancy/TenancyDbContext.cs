@@ -41,6 +41,8 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
 
     public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
 
+    public DbSet<ServiceAccount> ServiceAccounts => Set<ServiceAccount>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -177,6 +179,23 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
                 .HasForeignKey(m => m.TeamId)
                 .OnDelete(DeleteBehavior.Cascade);
             ApplyTenantFilter(member);
+        });
+
+        modelBuilder.Entity<ServiceAccount>(account =>
+        {
+            account.Property(a => a.Name).HasColumnType("text");
+            account.Property(a => a.KeyHash).HasMaxLength(64);
+            account.Property(a => a.KeyPrefix).HasMaxLength(32);
+            // The key_hash index is GLOBAL and unique (service-accounts.md section
+            // 5): the resolve is tenant-less (a request has no tid until the key
+            // resolves it), so the lookup keys on the hash alone. RLS governs
+            // visibility, not this constraint, so cross-tenant uniqueness is fine.
+            account.HasIndex(a => a.KeyHash)
+                .IsUnique()
+                .HasDatabaseName("ix_service_accounts_key_hash_unique");
+            // The admin list is a tenant-scoped read (service-accounts.md section 5).
+            account.HasIndex(a => a.TenantId);
+            ApplyTenantFilter(account);
         });
     }
 }

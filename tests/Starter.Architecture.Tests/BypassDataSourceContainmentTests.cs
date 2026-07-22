@@ -18,12 +18,12 @@ namespace Starter.Architecture.Tests;
 /// Starter.Tenancy is the exception, and a narrow one: crossing tenants IS its
 /// job for the control plane (multi-tenancy.md section 10), but only for a named
 /// allowlist of control-plane types - the self-serve <c>TenantProvisioner</c>, the
-/// <c>MembershipDirectory</c>, the <c>InvitationAcceptor</c>, and the platform
-/// super-admin plane (<c>PlatformAdminDirectory</c>, <c>PlatformAdminService</c>,
-/// and the <c>ImpersonationGrantReader</c>). Every OTHER Tenancy type stays
-/// banned, so the allowlist is the literal, enforced definition of "explicitly
-/// cross-tenant platform code". Only the composition root (Starter.App) is
-/// otherwise allowed.
+/// <c>MembershipDirectory</c>, the <c>InvitationAcceptor</c>, the
+/// <c>ApiKeyResolver</c>, and the platform super-admin plane
+/// (<c>PlatformAdminDirectory</c>, <c>PlatformAdminService</c>, and the
+/// <c>ImpersonationGrantReader</c>). Every OTHER Tenancy type stays banned, so the
+/// allowlist is the literal, enforced definition of "explicitly cross-tenant
+/// platform code". Only the composition root (Starter.App) is otherwise allowed.
 /// </para>
 /// <para>
 /// This walks IL with Mono.Cecil directly rather than the ArchUnitNET fluent
@@ -52,12 +52,16 @@ public class BypassDataSourceContainmentTests
     // - the platform-admin service (cross-tenant tenant lifecycle, the platform-
     //   admin roster, and the impersonation audit spine);
     // - the impersonation grant reader (the per-request guard re-checks a grant
-    //   on the no-RLS platform table).
+    //   on the no-RLS platform table);
+    // - the API-key resolver (a request authenticated by an API key holds no tid
+    //   until the key resolves one, so the tenant-less key_hash lookup crosses the
+    //   boundary, exactly like invitation accept - service-accounts.md sections 3, 4).
     private static readonly string[] TenancyAllowlist =
     [
         "Starter.Tenancy.ControlPlane.TenantProvisioner",
         "Starter.Tenancy.ControlPlane.MembershipDirectory",
         "Starter.Tenancy.ControlPlane.InvitationAcceptor",
+        "Starter.Tenancy.ControlPlane.ApiKeyResolver",
         "Starter.Tenancy.ControlPlane.PlatformAdminDirectory",
         "Starter.Tenancy.ControlPlane.PlatformAdminService",
         "Starter.Tenancy.ControlPlane.ImpersonationGrantReader",

@@ -1,6 +1,7 @@
 using Starter.Tenancy.Admin;
 using Starter.Tenancy.ControlPlane;
 using Starter.Tenancy.Rbac;
+using Starter.Tenancy.ServiceAccounts;
 using Starter.Platform.Auth;
 using Starter.SharedKernel;
 
@@ -21,6 +22,8 @@ internal sealed class TenancyApi(
     CustomRoleService customRoles,
     WorkspaceService workspaces,
     TeamService teams,
+    ServiceAccountService serviceAccounts,
+    ApiKeyResolver apiKeys,
     TenantAdminService admin,
     InvitationAcceptor acceptor,
     PlatformAdminDirectory platformAdmins,
@@ -255,4 +258,39 @@ internal sealed class TenancyApi(
     public Task<Result<IReadOnlyList<(Guid UserId, DateTimeOffset CreatedAt)>>>
         ListTeamMembersAsync(Guid teamId, CancellationToken cancellationToken) =>
         teams.ListMembersAsync(teamId, cancellationToken);
+
+    public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid principalId, string principalType, CancellationToken cancellationToken) =>
+        permissions.GetCallerPermissionsAsync(principalId, principalType, cancellationToken);
+
+    public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid principalId, Guid workspaceId, string principalType, CancellationToken cancellationToken) =>
+        permissions.GetCallerPermissionsAsync(principalId, workspaceId, principalType, cancellationToken);
+
+    public Task<(Guid TenantId, Guid ServiceAccountId)?> ResolveApiKeyAsync(
+        string keyHash, CancellationToken cancellationToken) =>
+        apiKeys.ResolveApiKeyAsync(keyHash, cancellationToken);
+
+    public Task<Result<(Guid Id, string RawKey, string KeyPrefix, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt)>>
+        CreateServiceAccountAsync(
+            Guid callerUserId,
+            string name,
+            DateTimeOffset? expiresAt,
+            Guid? roleId,
+            string? scopeType,
+            Guid? scopeId,
+            CancellationToken cancellationToken) =>
+        serviceAccounts.CreateAsync(callerUserId, name, expiresAt, roleId, scopeType, scopeId, cancellationToken);
+
+    public Task<Result<(IReadOnlyList<(Guid Id, string Name, string KeyPrefix, DateTimeOffset CreatedAt, DateTimeOffset? LastUsedAt, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt)> Items, string? NextCursor)>>
+        ListServiceAccountsAsync(int limit, string? cursor, CancellationToken cancellationToken) =>
+        serviceAccounts.ListAsync(limit, cursor, cancellationToken);
+
+    public Task<Result<(string RawKey, string KeyPrefix)>>
+        RotateServiceAccountAsync(Guid callerUserId, Guid serviceAccountId, CancellationToken cancellationToken) =>
+        serviceAccounts.RotateAsync(callerUserId, serviceAccountId, cancellationToken);
+
+    public Task<Result> RevokeServiceAccountAsync(
+        Guid callerUserId, Guid serviceAccountId, CancellationToken cancellationToken) =>
+        serviceAccounts.RevokeAsync(callerUserId, serviceAccountId, cancellationToken);
 }

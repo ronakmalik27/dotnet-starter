@@ -15,6 +15,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 using Starter.Api.Audit;
+using Starter.Api.Auth;
 using Starter.Api.Identity;
 using Starter.Api.Platform;
 using Starter.Api.Sample;
@@ -222,6 +223,13 @@ var signingKey = new ECDsaSecurityKey(signingEcdsa);
 // Local ES256 verification, no per-request DB hit. Registered even without
 // persistence so the pipeline keeps its contract shape in every mode.
 builder.Services.AddStarterJwtAuthentication(signingKey);
+
+// The additive API-key scheme (service-accounts.md section 3): a forwarding
+// policy scheme becomes the default authenticate scheme, routing
+// `Authorization: Bearer sk_...` (or X-Api-Key) to the ApiKey handler and every
+// other request to the JWT bearer scheme. The challenge stays Bearer, so the JWT
+// 401 is unchanged and no authorization fallback policy is added.
+builder.Services.AddStarterApiKeyAuthentication();
 
 // Email transport: the console sender by default (logs the message,
 // verification link included), SMTP when Email:Provider is smtp. No DB
@@ -436,6 +444,12 @@ if (postgres is not null)
     // gated by RequirePermission(teams:manage). A team is a principal that can
     // hold grants; the resolver unions its grants into each member's permissions.
     app.MapTeamAdminEndpoints();
+    // The service-account control plane (service-accounts.md section 7): create,
+    // list, rotate, and revoke API keys, all over the active tenant
+    // (/api/v1/tenant/service-accounts) and gated by RequirePermission(api-keys:manage).
+    // A service account is a non-human principal that authenticates with its key
+    // (Authorization: Bearer sk_...) and carries scoped grants, not a membership.
+    app.MapServiceAccountEndpoints();
     // The workspace-scoped view of the Sample resource
     // (/api/v1/workspaces/{workspaceId}/sample/notes): the worked example of a
     // workspace-scoped resource, gated by notes:read / notes:write at the workspace.

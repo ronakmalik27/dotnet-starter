@@ -56,6 +56,14 @@ public static class Permissions
     /// <summary>Read the tenant's audit log (audit-log.md section 7).</summary>
     public const string AuditRead = "audit:read";
 
+    /// <summary>
+    /// Manage service accounts and their API keys (service-accounts.md section 7):
+    /// create, list, rotate, and revoke. In the Admin system-role set and grantable
+    /// in a custom role like any non-owner-reserved permission - but never to a
+    /// service-account principal (<see cref="NotServiceAccountGrantable"/>).
+    /// </summary>
+    public const string ApiKeysManage = "api-keys:manage";
+
     /// <summary>Owner-reserved: rename or reconfigure the tenant. Never grantable in a custom role.</summary>
     public const string TenantManage = "tenant:manage";
 
@@ -84,6 +92,7 @@ public static class Permissions
         WorkspacesManage,
         TeamsManage,
         AuditRead,
+        ApiKeysManage,
         TenantManage,
         TenantDelete,
         TenantTransferOwnership,
@@ -101,9 +110,37 @@ public static class Permissions
         TenantTransferOwnership,
     }.ToFrozenSet(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The self-escalation primitives that can never be granted to a
+    /// service-account principal (service-accounts.md section 4):
+    /// <see cref="RolesManage"/> lets a principal author a custom role from the
+    /// whole non-owner-reserved catalogue and assign it to itself, and
+    /// <see cref="ApiKeysManage"/> lets it mint further keys. A human admin holding
+    /// them is a supervised, interactive actor; a service account is a scriptable,
+    /// always-on, unattended credential, so a single leaked or over-scoped key
+    /// holding either would be a silent path to near-total tenant compromise.
+    /// These stay grantable to a user or team; only a service account is refused
+    /// a role whose permission set intersects this set (a service account can
+    /// still hold powerful operational permissions like <c>members:manage</c> -
+    /// what it cannot do is expand its OWN authority without a human).
+    /// </summary>
+    public static readonly FrozenSet<string> NotServiceAccountGrantable = new[]
+    {
+        RolesManage,
+        ApiKeysManage,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
     /// <summary>True when <paramref name="permission"/> is a catalogue permission.</summary>
     public static bool IsKnown(string permission) => All.Contains(permission);
 
     /// <summary>True when <paramref name="permission"/> is owner-reserved (never in a custom role).</summary>
     public static bool IsOwnerReserved(string permission) => OwnerReserved.Contains(permission);
+
+    /// <summary>
+    /// True when <paramref name="permission"/> is a self-escalation primitive that
+    /// must not be granted to a service-account principal
+    /// (<see cref="NotServiceAccountGrantable"/>).
+    /// </summary>
+    public static bool IsNotServiceAccountGrantable(string permission) =>
+        NotServiceAccountGrantable.Contains(permission);
 }

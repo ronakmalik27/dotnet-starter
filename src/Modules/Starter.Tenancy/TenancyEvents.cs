@@ -465,4 +465,64 @@ internal static class TenancyEvents
             ActorUserId = actorUserId,
             Payload = JsonSerializer.Serialize(new { userId }, Json),
         };
+
+    /// <summary>
+    /// tenancy.service_account.created: an admin minted a service account
+    /// (service-accounts.md section 7). Actor is the creating admin; the coarse
+    /// name rides the payload. The raw key is NEVER on the payload - it is
+    /// returned once in the HTTP response and never persisted anywhere else.
+    /// </summary>
+    public static DomainEventRecord ServiceAccountCreated(
+        Guid serviceAccountId,
+        string name,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.service_account.created",
+            EntityId = serviceAccountId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { name }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.service_account.rotated: an admin rotated a service account's key,
+    /// so the old secret stopped working immediately (service-accounts.md section
+    /// 7). Actor is the admin; no payload beyond the entity - the new key is never
+    /// on the payload.
+    /// </summary>
+    public static DomainEventRecord ServiceAccountRotated(
+        Guid serviceAccountId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.service_account.rotated",
+            EntityId = serviceAccountId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.service_account.revoked: an admin revoked a service account, so its
+    /// key fails to resolve on the next request (service-accounts.md section 7).
+    /// Actor is the admin; no payload beyond the entity.
+    /// </summary>
+    public static DomainEventRecord ServiceAccountRevoked(
+        Guid serviceAccountId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.service_account.revoked",
+            EntityId = serviceAccountId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
 }

@@ -56,6 +56,11 @@ public static class SystemRolePermissions
             // in a custom role like any non-owner-reserved permission, so a tenant
             // can mint a read-only Auditor role.
             Permissions.AuditRead,
+            // Managing service accounts and their API keys is admin work
+            // (service-accounts.md section 7): Admins and Owners manage keys. It is
+            // grantable in a custom role like any non-owner-reserved permission -
+            // but never to a service account (Permissions.NotServiceAccountGrantable).
+            Permissions.ApiKeysManage,
         ])
         .ToFrozenSet(StringComparer.Ordinal);
 

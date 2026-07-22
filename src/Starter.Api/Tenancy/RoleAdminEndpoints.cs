@@ -193,25 +193,32 @@ public static class RoleAdminEndpoints
 
     /// <summary>
     /// Resolves an assignment request's principal (multi-tenancy.md sections 13,
-    /// 14): exactly one of userId / teamId must be a non-empty id, and roleId must
-    /// be present. Returns the (type, id) pair on success or null when the request
-    /// is malformed - the caller then renders <see cref="PrincipalErrors"/>. Shared
-    /// by the tenant- and workspace-scope assignment endpoints.
+    /// 14; service-accounts.md section 4): exactly one of userId / teamId /
+    /// serviceAccountId must be a non-empty id, and roleId must be present. Returns
+    /// the (type, id) pair on success or null when the request is malformed - the
+    /// caller then renders <see cref="PrincipalErrors"/>. Shared by the tenant- and
+    /// workspace-scope assignment endpoints.
     /// </summary>
     internal static (string PrincipalType, Guid PrincipalId)? ResolvePrincipal(AssignRoleRequest request)
     {
         var hasUser = request.UserId is { } userId && userId != Guid.Empty;
         var hasTeam = request.TeamId is { } teamId && teamId != Guid.Empty;
+        var hasServiceAccount = request.ServiceAccountId is { } accountId && accountId != Guid.Empty;
 
         // Exactly one principal, and a role.
-        if (request.RoleId == Guid.Empty || hasUser == hasTeam)
+        if (request.RoleId == Guid.Empty || PrincipalCount(hasUser, hasTeam, hasServiceAccount) != 1)
         {
             return null;
         }
 
-        return hasUser
-            ? (PrincipalTypes.User, request.UserId!.Value)
-            : (PrincipalTypes.Team, request.TeamId!.Value);
+        if (hasUser)
+        {
+            return (PrincipalTypes.User, request.UserId!.Value);
+        }
+
+        return hasTeam
+            ? (PrincipalTypes.Team, request.TeamId!.Value)
+            : (PrincipalTypes.ServiceAccount, request.ServiceAccountId!.Value);
     }
 
     /// <summary>The field-level validation errors for a malformed assignment principal.</summary>
@@ -225,13 +232,17 @@ public static class RoleAdminEndpoints
 
         var hasUser = request.UserId is { } userId && userId != Guid.Empty;
         var hasTeam = request.TeamId is { } teamId && teamId != Guid.Empty;
-        if (hasUser == hasTeam)
+        var hasServiceAccount = request.ServiceAccountId is { } accountId && accountId != Guid.Empty;
+        if (PrincipalCount(hasUser, hasTeam, hasServiceAccount) != 1)
         {
-            errors["principal"] = ["Provide exactly one of userId or teamId."];
+            errors["principal"] = ["Provide exactly one of userId, teamId, or serviceAccountId."];
         }
 
         return errors;
     }
+
+    private static int PrincipalCount(bool hasUser, bool hasTeam, bool hasServiceAccount) =>
+        (hasUser ? 1 : 0) + (hasTeam ? 1 : 0) + (hasServiceAccount ? 1 : 0);
 
     private static async Task<IResult> ListAssignmentsAsync(
         ITenancyApi tenancy, CancellationToken cancellationToken)
@@ -278,11 +289,14 @@ public sealed record UpdateRoleRequest(string? Name, string? Description, IReadO
 
 /// <summary>
 /// POST /api/v1/tenant/role-assignments (and the workspace-scope equivalent) body:
-/// grant a role to a principal. Name EXACTLY ONE of <paramref name="UserId"/> or
-/// <paramref name="TeamId"/> (multi-tenancy.md sections 13, 14); the other stays
-/// null. A team grant unions into every team member's effective permissions.
+/// grant a role to a principal. Name EXACTLY ONE of <paramref name="UserId"/>,
+/// <paramref name="TeamId"/>, or <paramref name="ServiceAccountId"/>
+/// (multi-tenancy.md sections 13, 14; service-accounts.md section 4); the others
+/// stay null. A team grant unions into every team member's effective permissions;
+/// a service-account grant is refused if the role carries a self-escalation
+/// permission (roles:manage / api-keys:manage).
 /// </summary>
-public sealed record AssignRoleRequest(Guid RoleId, Guid? UserId, Guid? TeamId);
+public sealed record AssignRoleRequest(Guid RoleId, Guid? UserId, Guid? TeamId, Guid? ServiceAccountId);
 
 /// <summary>POST /api/v1/tenant/roles success: the new role's id.</summary>
 public sealed record RoleCreatedResponse(Guid Id);

@@ -129,6 +129,15 @@ public static class ProblemTypes
     public const string TenantRoleInUse = "starter:tenant-role-in-use";
 
     /// <summary>
+    /// 422: the role cannot be assigned to a service-account principal because its
+    /// permission set intersects the self-escalation primitives (roles:manage /
+    /// api-keys:manage) that an unattended credential must never hold
+    /// (service-accounts.md section 4). The same role assigns fine to a user or
+    /// team; only a service account is refused.
+    /// </summary>
+    public const string PermissionNotAutomatable = "starter:permission-not-automatable";
+
+    /// <summary>
     /// 409: team creation asked for a slug already taken within the tenant
     /// (multi-tenancy.md section 14). A slug is caller-supplied and not a secret,
     /// so a definite answer is fine (the citext unique index on (tenant_id, slug)

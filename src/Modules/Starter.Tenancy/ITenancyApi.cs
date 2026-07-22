@@ -417,4 +417,85 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// <summary>Lists a team's members (teams:manage): user id, joined-at. Unknown team is a NotFound.</summary>
     Task<Result<IReadOnlyList<(Guid UserId, DateTimeOffset CreatedAt)>>>
         ListTeamMembersAsync(Guid teamId, CancellationToken cancellationToken);
+
+    // --- Service accounts and API keys (service-accounts.md) --------------
+    // A service account is a non-human principal that authenticates with a hashed
+    // API key and carries scoped RBAC grants, not a membership (section 1). The
+    // admin endpoints are on the tenant group, gated by api-keys:manage; the
+    // resolve is the authentication path.
+
+    /// <summary>
+    /// The caller's effective permissions at TENANT scope for a caller of the
+    /// given <paramref name="principalType"/> (service-accounts.md section 4). The
+    /// RequirePermission gate reads the caller's principal type from the pt claim
+    /// (defaulting to user) and passes it through: a user takes the membership +
+    /// system-role + grants path; a service account skips the membership gate and
+    /// resolves ONLY its own service-account grants. Cached per request per
+    /// (principal, scope, principal type).
+    /// </summary>
+    Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid principalId, string principalType, CancellationToken cancellationToken);
+
+    /// <summary>The principal-typed overload AT A WORKSPACE; same semantics, plus that workspace's grants.</summary>
+    Task<IReadOnlySet<string>> GetCallerPermissionsAsync(
+        Guid principalId, Guid workspaceId, string principalType, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Resolves a presented API key by its SHA-256 hex hash (service-accounts.md
+    /// sections 3, 4): the tenant-less lookup on the bypass path, returning the
+    /// (tenant, service-account) pair for a LIVE key or null for every miss -
+    /// unknown, revoked, or expired all collapse to null so a holder cannot probe
+    /// which keys exist. It also does the throttled last_used_at write. The API-
+    /// layer authentication handler calls this after hashing the raw key; the
+    /// handler mints sub + tid + pt = service_account on a hit, and 401s on null.
+    /// </summary>
+    Task<(Guid TenantId, Guid ServiceAccountId)?> ResolveApiKeyAsync(
+        string keyHash, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a service account (api-keys:manage) and returns the raw key ONCE
+    /// (it is never retrievable again). When <paramref name="roleId"/> is given,
+    /// the matching role_assignment is created in the SAME transaction at the
+    /// named scope (<paramref name="scopeType"/> tenant | workspace,
+    /// <paramref name="scopeId"/> the workspace when workspace-scoped), so the
+    /// account lands usable; a self-escalation role (roles:manage / api-keys:manage)
+    /// is refused (tenancy.permission_not_automatable) and rolls the whole create
+    /// back. An optional <paramref name="expiresAt"/> caps the key's life. An
+    /// account created with no role has no permissions until one is assigned.
+    /// </summary>
+    Task<Result<(Guid Id, string RawKey, string KeyPrefix, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt)>>
+        CreateServiceAccountAsync(
+            Guid callerUserId,
+            string name,
+            DateTimeOffset? expiresAt,
+            Guid? roleId,
+            string? scopeType,
+            Guid? scopeId,
+            CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists the active tenant's service accounts (api-keys:manage), keyset
+    /// paginated: id, name, key_prefix, created, last_used, expires, revoked -
+    /// NEVER the secret or the hash. A malformed cursor is a Validation failure.
+    /// </summary>
+    Task<Result<(IReadOnlyList<(Guid Id, string Name, string KeyPrefix, DateTimeOffset CreatedAt, DateTimeOffset? LastUsedAt, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt)> Items, string? NextCursor)>>
+        ListServiceAccountsAsync(int limit, string? cursor, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Rotates a service account's key (api-keys:manage): mints a new secret,
+    /// replaces the hash and prefix, and returns the new raw key ONCE. The old
+    /// secret stops working immediately (one active hash). Unknown id is a
+    /// NotFound (tenancy.service_account_not_found).
+    /// </summary>
+    Task<Result<(string RawKey, string KeyPrefix)>>
+        RotateServiceAccountAsync(Guid callerUserId, Guid serviceAccountId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Revokes a service account (api-keys:manage): sets revoked_at, so its key
+    /// fails to resolve on the next request. Idempotent - an already-revoked
+    /// account is a benign success. Unknown id is a NotFound
+    /// (tenancy.service_account_not_found).
+    /// </summary>
+    Task<Result> RevokeServiceAccountAsync(
+        Guid callerUserId, Guid serviceAccountId, CancellationToken cancellationToken);
 }

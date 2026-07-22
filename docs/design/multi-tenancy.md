@@ -704,6 +704,7 @@ rewrite:
 
 - **API keys, service accounts, PATs**: a non-human principal type, hashed like
   the one-time tokens, carrying scoped grants (section 13) instead of a session.
+  DESIGNED and being built out - see [service-accounts.md](service-accounts.md).
 - **SSO (SAML / OIDC) and SCIM provisioning**: a per-tenant identity-provider
   config; SCIM maps directory groups to teams (section 14) and roles.
 - **MFA / TOTP**: an Identity add-on on the sign-in path; no tenancy change.

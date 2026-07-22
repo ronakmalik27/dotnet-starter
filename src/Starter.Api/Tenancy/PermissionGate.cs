@@ -73,8 +73,15 @@ public static class PermissionGate
             return TypedResults.Problem(StarterProblems.Unauthorized(http));
         }
 
+        // The caller's principal type from the pt claim (service-accounts.md
+        // section 4), defaulting to user when absent - a JWT caller is a user, and
+        // only the ApiKey scheme mints pt = service_account. The resolver then
+        // takes the membership path for a user and the grants-only path for a
+        // service account.
+        var principalType = http.User.FindFirst(StarterClaims.Pt)?.Value ?? PrincipalTypes.User;
+
         var tenancy = http.RequestServices.GetRequiredService<ITenancyApi>();
-        var permissions = await tenancy.GetCallerPermissionsAsync(userId.Value, http.RequestAborted);
+        var permissions = await tenancy.GetCallerPermissionsAsync(userId.Value, principalType, http.RequestAborted);
         if (!permissions.Contains(permission))
         {
             return TypedResults.Problem(StarterProblems.PermissionRequired(http));
@@ -107,8 +114,11 @@ public static class PermissionGate
             return TypedResults.Problem(StarterProblems.WorkspaceNotFound(http));
         }
 
+        var principalType = http.User.FindFirst(StarterClaims.Pt)?.Value ?? PrincipalTypes.User;
+
         var tenancy = http.RequestServices.GetRequiredService<ITenancyApi>();
-        var permissions = await tenancy.GetCallerPermissionsAsync(userId.Value, workspaceId, http.RequestAborted);
+        var permissions = await tenancy.GetCallerPermissionsAsync(
+            userId.Value, workspaceId, principalType, http.RequestAborted);
         if (!permissions.Contains(permission))
         {
             return TypedResults.Problem(StarterProblems.PermissionRequired(http));
