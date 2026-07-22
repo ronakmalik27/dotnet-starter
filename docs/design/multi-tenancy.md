@@ -1,10 +1,16 @@
 # Multi-tenancy and the SaaS control plane
 
-Status: DESIGN (proposed). This is the blueprint the tenancy build follows.
-It is docs-first by rule: nothing below is built until this doc is reviewed.
-This revision incorporates a security red-team pass (the isolation boundary,
-the async consumer path, the bypass path, provisioning atomicity, invitation
-and seat handling).
+Status: Part I (sections 1-11) is BUILT and shipped in four gated increments:
+tenant isolation, tenant-scoped roles, provisioning, the tenant-admin control
+plane, and the platform super-admin plane with audited impersonation. Part II
+(sections 12 onward) is DESIGN (proposed): the intra-tenant scope model
+(workspaces), the generalized permission/role/grant RBAC (system and custom
+roles, fine-grained permissions), teams, and scope-aware invitations. It is
+docs-first by rule: nothing in Part II is built until this revision is reviewed.
+The original design incorporated a security red-team pass (the isolation
+boundary, the async consumer path, the bypass path, provisioning atomicity,
+invitation and seat handling); Part II keeps the same posture, in particular
+that the tenant boundary stays the only hard, database-enforced isolation layer.
 
 This starter ships single-tenant by default. This document specifies the
 optional but first-class SaaS layer: tenant isolation, tenant-scoped roles
@@ -235,9 +241,11 @@ transaction, no impersonation token can exist without its audit row. Because
 `imp`-bearing request re-checks the grant (`ended_at IS NULL AND now() <
 expires_at`), ending a session early takes effect immediately, not only at token
 expiry. Under `imp`, destructive or irreversible operations may be refused (a
-conservative default the app tightens per endpoint). The grant auto-expires at
-its absolute cap with no rotation; ending it writes `ended_at` and emits
-`ImpersonationEnded`.
+conservative default the app tightens per endpoint). When the grant names no
+target user, the session acts as the admin's own identity inside the tenant with
+a read-only default: it can view but not mutate, and an endpoint must opt in to
+allow a write under a target-less grant. The grant auto-expires at its absolute
+cap with no rotation; ending it writes `ended_at` and emits `ImpersonationEnded`.
 
 ## 8. Tenant-admin control-plane API and provisioning
 
@@ -355,3 +363,368 @@ Built and gated in reviewable increments, never one commit:
 
 Each increment is a `/review-gate` pass, a blocking-reviewer pass, and a
 `/pre-merge-gate` before merge, exactly like every other change.
+
+## Part II: workspaces, scoped RBAC, teams, and custom roles
+
+Part I gives every tenant a flat membership with one of three roles. Real B2B
+customers subdivide their own account: separate spaces for production, staging,
+and development, or one space per internal team or project, each with its own
+people and its own policies. Part II adds that as a first-class, optional layer
+on top of Part I, without touching the tenant isolation boundary. The
+load-bearing decision: a workspace is an authorization scope, not a second
+isolation tier. The tenant stays the only hard, database-enforced boundary (RLS,
+Part I); workspaces, teams, and custom roles are all resolved in the application
+authorization layer, exactly as resource ownership and tenant role already are.
+
+## 12. Workspaces: a scope inside the tenant
+
+A **workspace** is a named scope within one tenant. A tenant has one or many;
+the count and the names are the customer's, not ours (a company may run
+`production` / `staging` / `dev`, or one workspace per team or per project). A
+workspace never spans tenants.
+
+`tenancy.workspaces`: `id`, `tenant_id`, `slug` (unique per tenant, citext),
+`name`, `status` (`active` | `archived`), `created_at`, `created_by`. It is
+tenant-owned, so it carries `tenant_id` and lives under the Part I tenant RLS
+policy: listing workspaces is an ordinary tenant-scoped read, and one tenant can
+never see another's workspaces. `workspace_id` is deliberately NOT a second RLS
+GUC (see below).
+
+**Resources may be workspace-scoped.** A tenant-owned table gains a nullable
+`workspace_id`. NULL means a tenant-level row (visible to the whole tenant,
+subject to role); a set value binds the row to that workspace. `Starter.Sample`
+notes gain a nullable `workspace_id` as the worked example: a note may be created
+at tenant level or inside a workspace, and the list endpoint can filter by
+workspace.
+
+**Why authorization scope, not a second RLS tier.** The tenant boundary is a
+hard, cross-customer boundary: a leak is a breach, so it belongs in the database
+(RLS). A workspace boundary is intra-customer: the same company, and its owners
+and admins routinely need to read and act across every workspace (that is their
+job). Three consequences make a second mandatory RLS GUC the wrong tool:
+
+- The common admin query is "everything in my tenant, across all workspaces". A
+  mandatory workspace GUC turns that into either many per-workspace queries or a
+  bypass, and every new bypass path is a place isolation can go wrong.
+- Workspace membership is fluid and fine-grained; RLS is coarse and
+  per-connection. Modeling access as data (a `workspace_id` column plus scoped
+  grants) fits how the access actually behaves.
+- The industry splits it this way: cross-tenant isolation is physical (separate
+  rows behind RLS, or separate accounts), while intra-account project or
+  workspace access is authorization (GCP Org -> Folder -> Project IAM
+  inheritance, GitHub Org -> Team -> Repo permissions, LaunchDarkly Project ->
+  Environment). We match that.
+
+So a workspace-owned row carries `workspace_id`, queries filter on it, and the
+scoped-RBAC layer (section 13) refuses a caller with no grant in that workspace.
+The tenant RLS still sits underneath as defense in depth: even a bug in workspace
+authorization cannot leak another customer's data.
+
+**Workspace context is per request, not in the token.** The access token still
+carries only `tid` (Part I): a signed-in user works across many workspaces in one
+session, so pinning the token to a workspace would be wrong. The workspace in
+play is resolved per request from the route
+(`/api/v1/workspaces/{workspaceId}/...` or the target resource's `workspace_id`),
+and the caller's permission in that workspace is resolved per request, the same
+stance Part I takes for roles.
+
+**Silo escape hatch still applies.** A single workspace that needs
+regulator-grade hard isolation (for example a `production` workspace holding
+regulated data, separated from `dev`) uses the same per-tenant silo indirection
+from section 10, keyed additionally on the workspace. Shared schema stays the
+default; a siloed workspace is the documented exception, not a new mechanism.
+
+## 13. Generalized RBAC: permissions, roles, and grants
+
+Part I's fixed `owner > admin > member` is the degenerate case of a three-part
+model that Part II makes explicit. The generalization is additive: Part I's
+behavior is preserved exactly, with the fixed roles becoming the code-defined
+system roles.
+
+- **Permissions** are the application-defined, enumerated atoms of capability, a
+  closed catalogue we ship. Customers compose them into roles; they never invent
+  a permission (as in GitHub and Auth0 custom roles). Each is a stable string
+  key, for example `members:read`, `members:manage`, `invitations:manage`,
+  `workspaces:read`, `workspaces:manage`, `roles:manage`, `teams:manage`,
+  `billing:manage`, `notes:read`, `notes:write`, `notes:delete`. A small set is
+  reserved to owners and can never appear in a custom role: `tenant:manage`,
+  `tenant:delete`, and ownership transfer.
+- **Roles** are named permission sets. **System roles** (`owner`, `admin`,
+  `member`) are defined in code, not stored as rows: they are the fixed
+  permission sets `tenancy.memberships.role` (Part I) names, so they need no
+  table and stay outside RLS entirely. **Custom roles** are per-tenant rows in
+  `tenancy.roles` (`tenant_id` not null, tenant-owned, under the ordinary tenant
+  RLS) with a tenant-chosen subset of the catalogue (section 15). A custom role
+  records where it may be assigned (tenant scope, workspace scope, or both) and,
+  when it is workspace-local, which workspace owns it.
+- **Grants** (`tenancy.role_assignments`) bind a CUSTOM role to a principal at a
+  scope: `(tenant_id, principal_type [user | team], principal_id, role_id,
+  scope_type [tenant | workspace], scope_id)`. Only a custom role is grantable
+  this way; a system role is conferred solely through `tenancy.memberships.role`
+  (the tenant base role, applied tenant-wide), so cross-cutting system power is
+  never handed out through a scoped grant. Assignments layer additional
+  fine-grained, workspace-scoped, or team-held permissions on top of the base
+  role. This is GitHub's shape exactly: an org base role plus repo- and
+  team-specific permissions above it. Creating a grant validates that
+  `scope_type` is one of the role's assignable scopes and, for a workspace-local
+  role, that `scope_id` equals the role's owning workspace, so a role can never
+  be bound wider than its author intended.
+
+**"Roles" and "policies".** A role is a named set of permissions; a policy is a
+grant, the binding of a role to a principal at a scope. That is role-based access
+control (RBAC), the right default for B2B SaaS and what the large majority run
+(GitHub, Slack, Linear). Rules that also depend on request attributes (time of
+day, IP range, resource labels) are ABAC; they are a documented grow-into
+(section 21) that plugs into this same per-request permission check, not a
+day-one need. Start with roles and scoped grants; add conditions only when a
+customer's compliance rule actually requires them.
+
+**Effective permissions** for a caller at a scope (the tenant, or one workspace)
+are the union of:
+
+1. the permission set of the caller's tenant base role (`memberships.role`),
+   which applies tenant-wide and therefore inherits into every workspace; plus
+2. every `role_assignment` whose principal is the caller OR a team the caller
+   belongs to (section 14), AND whose scope is the tenant (inherits to all
+   workspaces) OR exactly the workspace in context.
+
+Inheritance is downward only: a tenant-scope grant reaches every workspace; a
+workspace-scope grant applies to that workspace alone and never confers
+tenant-wide power. Resolution is per request and cached per request, fail-closed
+(no matching grant means no permission), considers only an active membership (a
+`suspended` membership confers nothing, so a suspension takes effect on the next
+request), and reads `tenancy.*` under the tenant RLS of Part I.
+
+**Gates.** `RequireTenantRole(minimum)` (Part I) stays for coarse system-role
+checks and is unchanged. Part II adds `RequirePermission(permission)` and
+`RequirePermission(permission, Scope.Workspace)` endpoint filters that resolve
+effective permissions at the request's scope and return 403
+`starter:permission-required` when it is absent. Resource ownership (the
+`IAuthorizationService` layer, section 5) is unchanged and composes with
+permissions exactly as tenant-admin does today: `notes:write` at workspace scope
+plus the ownership handler yields "the owner, or anyone with write in this
+workspace".
+
+## 14. Teams
+
+A **team** is a named group of users inside a tenant that can hold grants, so
+access is managed for a group instead of user by user (GitHub teams).
+
+- `tenancy.teams`: `id`, `tenant_id`, `slug` (unique per tenant), `name`,
+  `created_at`, `created_by`. Tenant-owned, under RLS.
+- `tenancy.team_members`: `id`, `tenant_id`, `team_id`, `user_id`, `created_at`.
+  Unique `(team_id, user_id)`. Tenant-owned, under RLS.
+
+A team is a principal in `role_assignments` (`principal_type = team`). The
+effective-permission resolver (section 13) unions the grants of every team the
+caller belongs to. Because resolution is per request, adding a user to a team
+grants its permissions on their next request, and removing them revokes on the
+next request, with no token churn. Team and membership management require
+`teams:manage`.
+
+## 15. Custom roles
+
+**Who authors what.** The platform owns the permission catalogue and the system
+roles; a tenant composes its own roles from that catalogue. This is the
+industry-standard split (GitHub custom organization roles, Auth0 roles): the
+application defines the vocabulary of permissions, the customer arranges them
+into roles. So a tenant admin with `roles:manage` self-serves custom roles with
+no platform operator in the loop, and the platform decides only what permissions
+exist and, optionally, gates custom roles behind a plan tier (the entitlements
+seam). The super-admin plane may additionally publish global role templates that
+are seeded into every tenant (section 21).
+
+A custom role is a name, an optional description, a chosen subset of the
+permission catalogue, and where it may be assigned (tenant scope, workspace
+scope, or both). It is stored as a `tenancy.roles` row (`tenant_id` not null,
+tenant-owned) plus its `tenancy.role_permissions` rows (also tenant-owned).
+System roles are not rows at all, so `tenancy.roles` holds only custom roles and
+carries no null-tenant exception to the RLS boundary.
+
+**Tenant-owned versus workspace-local roles.** A role's definition is owned at a
+scope, recorded by `workspace_id` on the role row. A tenant-owned role
+(`workspace_id` null) is visible across the tenant and assignable per its
+`assignable_at`. A workspace-local role (`workspace_id` set) is defined by a
+workspace admin with `roles:manage` in that workspace and is assignable only
+there, so each workspace can carry its own roles without cluttering the rest.
+This mirrors GCP, where a custom role can be defined at the organization or at a
+single project. Tenant-owned roles cover most needs; reach for workspace-local
+roles when one workspace needs a role the others should not see.
+
+Guardrails:
+
+- The catalogue is closed: a custom role can only contain permissions we ship,
+  and never the owner-reserved ones (`tenant:manage`, `tenant:delete`, ownership
+  transfer). Those stay system-role capabilities so cross-cutting control cannot
+  be handed out piecemeal.
+- A permission the tenant's plan does not include cannot be added (the
+  entitlements seam, a grow-into from section 21; enforced as a no-op filter
+  until billing exists).
+- A workspace-local role's grants never reach tenant scope (no upward
+  inheritance, section 13).
+- Editing a custom role's permissions takes effect for every holder on their next
+  request (per-request resolution).
+- A custom role in use cannot be deleted; its assignments must be removed or
+  reassigned first, so access never silently vanishes or dangles.
+
+## 16. Scope-aware invitations
+
+Part I invites a user to a tenant with a base role. Part II lets an invite also
+target a workspace and a role there. `tenancy.invitations` gains
+`workspace_id uuid null` and a nullable `role_id` (the scoped role to grant on
+accept), alongside the existing base-role field. On accept, in the one bypass
+transaction of section 8 (seat check under `SELECT ... FOR UPDATE`, email match,
+single-use consume): the membership is created if the invitee is new to the
+tenant (base role `member` unless the invite says otherwise), and, when the
+invite carries `workspace_id` + `role_id`, the matching `role_assignment` is
+created at that workspace scope. The invite's `role_id` must be a custom role
+whose owning workspace is that same `workspace_id` (the section 13 grant
+validation applies here too), so an invitation cannot bind a role wider than its
+scope. So a person can be invited straight into "developer on the staging
+workspace" in one step.
+
+## 17. Data model additions (Part II)
+
+All new tenant-owned tables carry `tenant_id` and live under the Part I tenant
+RLS policy; nothing here adds a second GUC.
+
+- `tenancy.workspaces` (section 12); `workspace_id` (nullable) added to
+  `Starter.Sample` notes and to `tenancy.invitations`.
+- `tenancy.roles` (custom roles only; system roles are code, not rows): `id`,
+  `tenant_id` (not null), `key`, `name`, `description`, `assignable_at`
+  (`tenant` | `workspace` | `both`), `workspace_id` (null for a tenant-owned
+  role, set for a workspace-local one, section 15), `created_at`. Tenant-owned,
+  under the ordinary tenant RLS. Unique on `(tenant_id, workspace_id, key)`, so a
+  name is unique within its owning scope.
+- `tenancy.role_permissions`: `role_id`, `tenant_id` (not null, denormalized from
+  the owning role), `permission`. Tenant-owned and under RLS like every other
+  tenant table, so a raw read cannot cross tenants; it holds custom-role rows
+  only, since system-role permission sets live in code.
+- `tenancy.role_assignments`: `id`, `tenant_id`, `principal_type`
+  (`user` | `team`), `principal_id`, `role_id` (a custom role), `scope_type`
+  (`tenant` | `workspace`), `scope_id` (null for tenant scope, else the
+  `workspace_id`), `granted_by`, `created_at`. Tenant-owned, under RLS.
+  Uniqueness is a partial unique index per scope kind (one
+  `WHERE scope_type = 'tenant'` on `(tenant_id, principal_type, principal_id,
+  role_id)`, one for workspace scope including `scope_id`), because a null
+  `scope_id` would not collide under a plain unique constraint.
+- `tenancy.teams`, `tenancy.team_members` (section 14).
+
+`tenancy.memberships.role` (Part I) is unchanged and remains the tenant base
+role. The permission catalogue and the system-role permission sets are code, not
+tables: closed sets the application owns.
+
+## 18. Tests for Part II (added to the crown-jewel suite)
+
+- **Custom role.** A custom role granting only `invitations:manage` lets its
+  holder invite members but not manage them; editing the role's permissions
+  changes what its holder can do on the next request.
+- **Guardrails.** Creating or editing a custom role that contains an
+  owner-reserved permission (`tenant:manage`, `tenant:delete`, ownership
+  transfer) is rejected; assigning a workspace-local role at tenant scope, or at
+  a different workspace, is rejected (the section 13 scope validation).
+- **Scoped RBAC and inheritance.** A tenant-scope grant is honored in every
+  workspace; a workspace-scope grant is honored only in that workspace and
+  confers nothing tenant-wide (no upward inheritance: a workspace admin cannot
+  administer the tenant).
+- **Workspace isolation within a tenant.** A workspace-scoped note in workspace A
+  does not appear when listing workspace B of the same tenant; a tenant admin
+  sees across both; a caller from another tenant still gets 404 by RLS, proving
+  the tenant boundary is untouched.
+- **Teams.** A grant held by a team confers its permissions to a member; removing
+  the member from the team revokes them on the next request.
+- **Scope-aware invitation.** Accepting a workspace-scoped invite creates the
+  membership and the workspace `role_assignment` in one transaction, and two
+  concurrent accepts still cannot exceed `seat_limit`.
+
+## 19. Build sequence (increments 5-7)
+
+Part II is built on top of the shipped Part I, in the same reviewable-increment
+discipline (each a `/review-gate`, a blocking-reviewer pass, and a
+`/pre-merge-gate`):
+
+5. **Scoped-RBAC engine and custom roles, tenant scope first.** The permission
+   catalogue, `roles` + `role_permissions` (system roles seeded, custom roles
+   tenant-defined), `role_assignments` (user principal, tenant scope), the
+   effective-permission resolver, the `RequirePermission` gate, and the
+   custom-role CRUD and assignment API. Behavior-preserving over increments 1-4:
+   the system roles reproduce the existing `owner > admin > member` permissions.
+6. **Workspaces as a scope.** The `workspaces` table and its CRUD, `workspace_id`
+   on Sample notes, `role_assignments` and the resolver and gate extended to
+   workspace scope, and workspace context resolved from the route.
+7. **Teams and scope-aware invitations.** `teams` + `team_members`, team
+   principals in `role_assignments`, team CRUD and membership, and invitations
+   extended with `workspace_id` + `role_id`.
+
+The SaaS layer stays deletable (section 10): removing `Starter.Tenancy` and the
+Platform tenant pieces drops Part II with it.
+
+## 20. Lifecycle: onboarding and offboarding
+
+Every entity in the control plane has an onboarding and an offboarding path, and
+the offboarding path is the one teams forget. The starter provides the
+control-plane APIs for these workflows; the tenant-admin portal and the platform
+super-admin portal are frontend UI built over those APIs.
+
+- **Tenant.** Onboard by self-serve signup or an invited owner (section 8).
+  Offboard as a state machine: `active -> suspended -> deleted` (soft delete,
+  Part I), then a retention window, then a hard delete that also produces a data
+  export (the data-portability and erasure path, section 21). Suspending stops
+  new access at once; existing short tokens age out within the access window.
+- **Workspace.** Onboard by create (section 12). Offboard by archive
+  (`active -> archived`): its resources go read-only and its scoped grants stop
+  conferring access, but nothing is destroyed until an explicit purge, so an
+  archive is reversible.
+- **Team.** Onboard by create, then add and remove members. Offboard by delete,
+  which first removes the team's `role_assignments` so no dangling grant survives.
+- **Person (membership).** Onboard by invite and accept, or as a self-serve
+  owner. Offboard by remove or suspend, which revokes the member's
+  `role_assignments` and team memberships on the next request. Resources the
+  person owned are reassigned or transferred, never silently orphaned: a tenant
+  admin can already manage any resource (section 5, layer 3). Enterprise
+  deprovisioning (SCIM) drives this same offboarding path from the customer's
+  directory (section 21).
+- **Role and policy.** Onboard by defining a custom role and granting it
+  (sections 13, 15). Offboard by revoking grants and deleting the role; a role in
+  use cannot be deleted until its assignments are removed or reassigned, so
+  access never dangles.
+
+Two rules cut across all of them: an offboarding action revokes access on the
+next request (per-request resolution, never waiting for a token to expire), and
+it is recorded on the event spine (who offboarded what, and when), because
+offboarding is exactly what an incident review reconstructs.
+
+## 21. Beyond this blueprint: the SaaS grow-into surface
+
+The tenancy layer plus the existing spine (outbox, idempotency, sessions, problem
+details, rate limiting) already carries the hooks for the rest of the
+control-plane surface a typical B2B SaaS grows into. These are deliberately not
+built here; each is noted so it hangs off the existing mechanisms rather than a
+rewrite:
+
+- **API keys, service accounts, PATs**: a non-human principal type, hashed like
+  the one-time tokens, carrying scoped grants (section 13) instead of a session.
+- **SSO (SAML / OIDC) and SCIM provisioning**: a per-tenant identity-provider
+  config; SCIM maps directory groups to teams (section 14) and roles.
+- **MFA / TOTP**: an Identity add-on on the sign-in path; no tenancy change.
+- **Billing (plans, subscriptions, seats, metering) and entitlements**: `plan`
+  and `seat_limit` already exist on the tenant; entitlements gate the permission
+  catalogue (section 15) and features per plan.
+- **A first-class, queryable audit log**: distinct from `domain_events`; a
+  projection built by a consumer off the outbox (the impersonation grant is the
+  first audited action).
+- **Outbound webhooks**: a consumer that fans domain events out to
+  tenant-registered endpoints, reusing the at-least-once delivery the outbox
+  gives.
+- **Data export and account deletion (GDPR / DSAR)**: tenant-scoped reads and a
+  soft-delete-to-hard-delete lifecycle on top of the existing tenant `status`.
+- **In-app notifications, usage quotas, data residency**: notifications ride the
+  existing `IEmailSender` and consumer pattern; quotas ride the rate limiter;
+  residency rides the silo indirection (section 12).
+- **Global role templates and platform policy defaults**: the super-admin plane
+  authors role templates seeded into every tenant, plus platform-wide defaults
+  (password, session, and lockout policy) a tenant inherits and may tighten.
+- **A policy engine (ABAC)**: conditional grants (time, IP, resource attributes)
+  through an engine such as Cedar or Open Policy Agent, evaluated at the same
+  per-request permission check (section 13). RBAC stays the default; ABAC layers
+  on only when a customer's rule needs a condition.
