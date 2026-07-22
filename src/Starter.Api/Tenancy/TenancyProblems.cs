@@ -28,6 +28,10 @@ internal static class TenancyProblems
             http, ProblemTypes.TenantMembershipConflict, "That account cannot be added again.", error.Message),
         "tenancy.invitation_invalid" => NotFound(
             http, ProblemTypes.TenantInvitationInvalid, "The invitation is not valid.", error.Message),
+        "tenancy.role_key_taken" => Conflict(
+            http, ProblemTypes.TenantRoleKeyTaken, "That role key is already taken.", error.Message),
+        "tenancy.role_in_use" => Conflict(
+            http, ProblemTypes.TenantRoleInUse, "The role is in use and cannot be deleted.", error.Message),
         _ => error.ToProblemResult(http),
     };
 

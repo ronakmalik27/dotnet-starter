@@ -129,6 +129,51 @@ internal static class TenantWorkflow
         return await fixture.Client.SendAsync(request, cancellationToken);
     }
 
+    /// <summary>
+    /// Creates a tenant-scoped custom role over the real endpoint and returns its
+    /// id. The caller (bearer) must hold roles:manage. Asserts 201.
+    /// </summary>
+    public static async Task<Guid> CreateRoleAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        string key,
+        IReadOnlyCollection<string> permissions,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture,
+            "/api/v1/tenant/roles",
+            bearer,
+            new { key, name = key, assignableAt = "tenant", permissions },
+            cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
+    /// <summary>
+    /// Grants a custom role to a user at tenant scope over the real endpoint and
+    /// returns the assignment id. The caller (bearer) must hold roles:manage.
+    /// Asserts 201.
+    /// </summary>
+    public static async Task<Guid> AssignRoleAsync(
+        StarterAppFixture fixture,
+        string bearer,
+        Guid roleId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var response = await PostJsonAsync(
+            fixture,
+            "/api/v1/tenant/role-assignments",
+            bearer,
+            new { roleId, userId },
+            cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var doc = await HttpTestHelpers.ReadJsonAsync(response, cancellationToken);
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
     private static Task<HttpResponseMessage> SendJsonAsync(
         StarterAppFixture fixture,
         HttpMethod method,

@@ -423,6 +423,9 @@ if (postgres is not null)
     // The tenant-admin control plane (member/invitation management, settings,
     // ownership, soft-delete, seats), all over the active tenant (/api/v1/tenant).
     app.MapTenantAdminEndpoints();
+    // The scoped-RBAC control plane (custom-role CRUD and role assignments), all
+    // over the active tenant (/api/v1/tenant) and gated by RequirePermission.
+    app.MapRoleAdminEndpoints();
     // The platform super-admin plane (cross-tenant tenant lifecycle, the
     // platform-admin roster, audited impersonation), all under /api/v1/platform
     // and gated by RequirePlatformAdmin - never a tenant role.

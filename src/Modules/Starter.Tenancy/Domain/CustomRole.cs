@@ -1,0 +1,70 @@
+using Starter.Platform.Tenancy;
+
+namespace Starter.Tenancy.Domain;
+
+/// <summary>
+/// A tenancy.roles row: a tenant-authored CUSTOM role (multi-tenancy.md sections
+/// 13, 15, 17). System roles (owner | admin | member) are code, never rows, so
+/// this table holds custom roles only and carries no null-tenant exception to
+/// the tenant RLS boundary. Tenant-owned in the ordinary way (a real tenant_id
+/// column, the RLS discriminator and the query-filter key).
+/// <para>
+/// A role records WHERE it may be assigned (<see cref="AssignableAt"/>: tenant |
+/// workspace | both) and, when it is workspace-local, which workspace owns it
+/// (<see cref="WorkspaceId"/>). This increment is tenant-scoped only, so
+/// <see cref="WorkspaceId"/> is always null; the column is present for the
+/// forward-compatible workspace increment. Unique on
+/// (tenant_id, workspace_id, key), so a key is unique within its owning scope.
+/// </para>
+/// </summary>
+internal sealed class CustomRole : ITenantOwned
+{
+    public required Guid Id { get; init; }
+
+    public required Guid TenantId { get; init; }
+
+    /// <summary>The stable, tenant-unique key (per owning scope).</summary>
+    public required string Key { get; init; }
+
+    /// <summary>The human-facing name. Editable.</summary>
+    public required string Name { get; set; }
+
+    /// <summary>An optional description. Editable.</summary>
+    public string? Description { get; set; }
+
+    /// <summary>One of tenant | workspace | both (stored as a string).</summary>
+    public required string AssignableAt { get; init; }
+
+    /// <summary>
+    /// Null for a tenant-owned role, set for a workspace-local one. Always null
+    /// this increment (present for forward-compat with the workspace increment).
+    /// </summary>
+    public Guid? WorkspaceId { get; init; }
+
+    /// <summary>The user who authored the role. A bare id by value, no cross-schema FK.</summary>
+    public required Guid CreatedBy { get; init; }
+
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>tenancy.roles.assignable_at values: the scopes a custom role may be granted at.</summary>
+internal static class RoleAssignableAt
+{
+    public const string Tenant = "tenant";
+
+    public const string Workspace = "workspace";
+
+    public const string Both = "both";
+
+    /// <summary>True for a recognized assignable-at value.</summary>
+    public static bool IsValid(string value) =>
+        value is Tenant or Workspace or Both;
+
+    /// <summary>True when a role with this assignable-at may be granted at the given scope.</summary>
+    public static bool Allows(string assignableAt, string scopeType) => scopeType switch
+    {
+        AssignmentScope.Tenant => assignableAt is Tenant or Both,
+        AssignmentScope.Workspace => assignableAt is Workspace or Both,
+        _ => false,
+    };
+}

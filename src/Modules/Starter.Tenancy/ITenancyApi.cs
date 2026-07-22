@@ -11,12 +11,14 @@ namespace Starter.Tenancy;
 /// exports no other public type (ModuleSurfaceTests).
 /// <para>
 /// It inherits <see cref="ITenantRoleReader"/> so the RequireTenantRole endpoint
-/// gate can read the caller's active-tenant role through the module facade; the
-/// same lookup backs the platform's layer-3 resource handler, bridged by the
-/// composition root, so there is one implementation and no drift.
+/// gate can read the caller's active-tenant role through the module facade, and
+/// <see cref="IPermissionResolver"/> so the RequirePermission gate can read the
+/// caller's effective permission set the same way; both lookups also back
+/// platform seams bridged by the composition root, so there is one
+/// implementation of each and no drift.
 /// </para>
 /// </summary>
-public interface ITenancyApi : ITenantRoleReader
+public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
 {
     /// <summary>
     /// Self-serve signup: creates a brand-new user, a new tenant, and the
@@ -207,4 +209,71 @@ public interface ITenancyApi : ITenantRoleReader
     /// </summary>
     Task<Result<(Guid TenantId, string Role)>> AcceptInvitationAsync(
         Guid userId, string token, CancellationToken cancellationToken);
+
+    // --- Custom roles and assignments (active tenant, request path under RLS) ---
+    // The scoped-RBAC control plane (multi-tenancy.md sections 13, 15). Every
+    // command below operates on the ACTIVE tenant; the endpoint gates each with
+    // RequireTenant + RequirePermission("roles:manage") before it runs.
+    // GetCallerPermissionsAsync (the RequirePermission gate's own read) is
+    // inherited from IPermissionResolver. Custom roles are tenant-scoped only
+    // this increment (workspace_id null, tenant-scope assignments).
+
+    /// <summary>
+    /// Creates a custom role from a subset of the permission catalogue (roles:manage).
+    /// Refuses an unknown or owner-reserved permission (Validation) and a duplicate
+    /// (tenant, workspace=null, key) (Conflict tenancy.role_key_taken). Returns the
+    /// new role id. <paramref name="assignableAt"/> is tenant | workspace | both.
+    /// </summary>
+    Task<Result<Guid>> CreateRoleAsync(
+        Guid callerUserId,
+        string key,
+        string name,
+        string? description,
+        string assignableAt,
+        IReadOnlyCollection<string> permissions,
+        CancellationToken cancellationToken);
+
+    /// <summary>Lists the active tenant's custom roles (roles:manage): id, key, name, description, assignableAt, created-at.</summary>
+    Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
+        ListRolesAsync(CancellationToken cancellationToken);
+
+    /// <summary>Gets one custom role and its permissions (roles:manage). Unknown id is a NotFound (tenancy.role_not_found).</summary>
+    Task<Result<(Guid Id, string Key, string Name, string? Description, string AssignableAt, IReadOnlyList<string> Permissions, DateTimeOffset CreatedAt)>>
+        GetRoleAsync(Guid roleId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Updates a custom role's name, description, and/or permission set (roles:manage).
+    /// A null argument leaves that facet unchanged; a supplied permission set
+    /// replaces the role's permissions wholesale (validated like create). The
+    /// change takes effect for every holder on their next request.
+    /// </summary>
+    Task<Result> UpdateRoleAsync(
+        Guid callerUserId,
+        Guid roleId,
+        string? name,
+        string? description,
+        IReadOnlyCollection<string>? permissions,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a custom role (roles:manage). Refuses deleting a role that has
+    /// assignments (Conflict tenancy.role_in_use): its grants must be revoked or
+    /// reassigned first, so access never dangles.
+    /// </summary>
+    Task<Result> DeleteRoleAsync(Guid callerUserId, Guid roleId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Assigns a custom role to a user at TENANT scope (roles:manage). Validates the
+    /// role allows tenant-scope assignment and the principal is an active member.
+    /// Returns the new assignment id. A duplicate grant is a Conflict.
+    /// </summary>
+    Task<Result<Guid>> AssignRoleAsync(
+        Guid callerUserId, Guid roleId, Guid principalUserId, CancellationToken cancellationToken);
+
+    /// <summary>Revokes a role assignment by id (roles:manage). Unknown id is a NotFound.</summary>
+    Task<Result> RevokeAssignmentAsync(Guid callerUserId, Guid assignmentId, CancellationToken cancellationToken);
+
+    /// <summary>Lists the active tenant's role assignments (roles:manage).</summary>
+    Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+        ListAssignmentsAsync(CancellationToken cancellationToken);
 }

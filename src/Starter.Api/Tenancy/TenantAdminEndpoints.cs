@@ -32,22 +32,33 @@ public static class TenantAdminEndpoints
             .RequireTenant()
             .RequireAuthorization();
 
-        tenant.MapGet("/members", ListMembersAsync).RequireTenantRole(TenantRole.Member);
-        tenant.MapPatch("/members/{userId:guid}", ChangeMemberRoleAsync).RequireTenantRole(TenantRole.Admin);
+        // Behavior-preserving migration to fine-grained permissions
+        // (multi-tenancy.md section 13): the system-role permission sets
+        // reproduce the Part I tenant-role thresholds exactly (members:read and
+        // seats:read are Member+; members:manage, invitations:manage, and
+        // settings:manage are Admin+), so a member is still refused and an admin
+        // still granted - now a custom role granting just one of these lets a
+        // member do exactly that one thing. The two owner-only lifecycle
+        // operations KEEP RequireTenantRole(Owner): their capabilities are
+        // owner-reserved and never grantable through a custom role.
+        tenant.MapGet("/members", ListMembersAsync).RequirePermission(Permissions.MembersRead);
+        tenant.MapPatch("/members/{userId:guid}", ChangeMemberRoleAsync).RequirePermission(Permissions.MembersManage);
         // Removing a member is destructive, so it is refused under an
         // impersonation token (the conservative default, multi-tenancy.md
         // section 7); BlockUnderImpersonation is outermost among the route filters.
         tenant.MapDelete("/members/{userId:guid}", RemoveMemberAsync)
             .BlockUnderImpersonation()
-            .RequireTenantRole(TenantRole.Admin);
+            .RequirePermission(Permissions.MembersManage);
 
-        tenant.MapPost("/invitations", InviteAsync).RequireTenantRole(TenantRole.Admin);
-        tenant.MapGet("/invitations", ListInvitationsAsync).RequireTenantRole(TenantRole.Admin);
-        tenant.MapDelete("/invitations/{id:guid}", RevokeInvitationAsync).RequireTenantRole(TenantRole.Admin);
+        tenant.MapPost("/invitations", InviteAsync).RequirePermission(Permissions.InvitationsManage);
+        tenant.MapGet("/invitations", ListInvitationsAsync).RequirePermission(Permissions.InvitationsManage);
+        tenant.MapDelete("/invitations/{id:guid}", RevokeInvitationAsync).RequirePermission(Permissions.InvitationsManage);
 
-        tenant.MapPatch("/", UpdateSettingsAsync).RequireTenantRole(TenantRole.Admin);
+        tenant.MapPatch("/", UpdateSettingsAsync).RequirePermission(Permissions.SettingsManage);
         // Ownership transfer and tenant soft-delete are irreversible, so both are
         // refused under an impersonation token on top of their owner-only gate.
+        // Their capabilities are owner-reserved, so they stay on the system-role
+        // gate and are never grantable through a custom role.
         tenant.MapPost("/transfer-ownership", TransferOwnershipAsync)
             .BlockUnderImpersonation()
             .RequireTenantRole(TenantRole.Owner);
@@ -55,7 +66,7 @@ public static class TenantAdminEndpoints
             .BlockUnderImpersonation()
             .RequireTenantRole(TenantRole.Owner);
 
-        tenant.MapGet("/seats", GetSeatsAsync).RequireTenantRole(TenantRole.Member);
+        tenant.MapGet("/seats", GetSeatsAsync).RequirePermission(Permissions.SeatsRead);
 
         return app;
     }

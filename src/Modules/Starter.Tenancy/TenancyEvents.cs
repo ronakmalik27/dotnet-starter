@@ -212,4 +212,92 @@ internal static class TenancyEvents
             ActorUserId = actorUserId,
             Payload = JsonSerializer.Serialize(new { }, Json),
         };
+
+    /// <summary>
+    /// tenancy.role.created: a tenant admin authored a custom role. Actor is the
+    /// author; the coarse role key rides the payload (never any permission-set
+    /// detail beyond the key).
+    /// </summary>
+    public static DomainEventRecord RoleCreated(
+        Guid roleId,
+        string key,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.role.created",
+            EntityId = roleId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { key }, Json),
+        };
+
+    /// <summary>tenancy.role.updated: a tenant admin edited a custom role's name, description, or permissions.</summary>
+    public static DomainEventRecord RoleUpdated(
+        Guid roleId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.role.updated",
+            EntityId = roleId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>tenancy.role.deleted: a tenant admin deleted a custom role that had no assignments.</summary>
+    public static DomainEventRecord RoleDeleted(
+        Guid roleId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.role.deleted",
+            EntityId = roleId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.role_assignment.granted: a custom role was granted to a principal
+    /// at a scope. Actor is the granter; the role and the principal ride the
+    /// payload (ids only).
+    /// </summary>
+    public static DomainEventRecord RoleAssignmentGranted(
+        Guid assignmentId,
+        Guid roleId,
+        Guid principalId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.role_assignment.granted",
+            EntityId = assignmentId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { roleId, principalId }, Json),
+        };
+
+    /// <summary>tenancy.role_assignment.revoked: a custom-role grant was revoked from a principal.</summary>
+    public static DomainEventRecord RoleAssignmentRevoked(
+        Guid assignmentId,
+        Guid roleId,
+        Guid principalId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.role_assignment.revoked",
+            EntityId = assignmentId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { roleId, principalId }, Json),
+        };
 }

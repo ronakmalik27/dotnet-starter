@@ -17,13 +17,16 @@ namespace Starter.Integration.Tests;
 public sealed class TenantRbacTests(StarterAppFixture fixture)
 {
     [Fact]
-    public async Task Member_IsRefused_MemberManagement_With403RoleRequired()
+    public async Task Member_IsRefused_MemberManagement_With403PermissionRequired()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var owner = await TenantWorkflow.SignupOwnerAsync(fixture, cancellationToken);
         var member = await TenantWorkflow.InviteAcceptMintAsync(fixture, owner, "member", cancellationToken);
 
-        // A plain member cannot invite (an admin+ action).
+        // A plain member cannot invite: the invitation endpoint now gates on the
+        // invitations:manage permission (multi-tenancy.md section 13), and the
+        // Member system role does not confer it - the same refusal Part I gave,
+        // now with the fine-grained starter:permission-required slug.
         var invite = await TenantWorkflow.PostJsonAsync(
             fixture,
             "/api/v1/tenant/invitations",
@@ -33,7 +36,7 @@ public sealed class TenantRbacTests(StarterAppFixture fixture)
 
         invite.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         using var doc = await HttpTestHelpers.ReadJsonAsync(invite, cancellationToken);
-        doc.RootElement.GetProperty("type").GetString().ShouldBe("starter:tenant-role-required");
+        doc.RootElement.GetProperty("type").GetString().ShouldBe("starter:permission-required");
     }
 
     [Fact]

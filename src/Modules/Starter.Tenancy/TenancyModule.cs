@@ -74,6 +74,8 @@ public static class TenancyModule
 
         // Request-path (RLS-bound) slices.
         services.AddScoped<TenantRoleResolver>();
+        services.AddScoped<PermissionResolver>();
+        services.AddScoped<CustomRoleService>();
         services.AddScoped<TenantAdminService>();
 
         services.AddScoped<ITenancyApi, TenancyApi>();
@@ -83,6 +85,12 @@ public static class TenancyModule
         // platform never references this module and there is one lookup.
         services.AddScoped<ITenantRoleReader>(
             provider => provider.GetRequiredService<TenantRoleResolver>());
+
+        // Bridge the platform-declared permission-resolver port to the request-
+        // path resolver, mirroring the role-reader bridge: one resolver, no
+        // drift, and the platform never references this module.
+        services.AddScoped<IPermissionResolver>(
+            provider => provider.GetRequiredService<PermissionResolver>());
 
         // Bridge the platform-declared impersonation-guard port (used by the
         // per-request guard middleware in the platform) to the bypass-path grant

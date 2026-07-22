@@ -29,6 +29,12 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
 
     public DbSet<Invitation> Invitations => Set<Invitation>();
 
+    public DbSet<CustomRole> Roles => Set<CustomRole>();
+
+    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+
+    public DbSet<RoleAssignment> RoleAssignments => Set<RoleAssignment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -71,6 +77,61 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
             // The pending-list and duplicate-invite checks key on (tenant, email).
             invitation.HasIndex(i => new { i.TenantId, i.Email });
             ApplyTenantFilter(invitation);
+        });
+
+        modelBuilder.Entity<CustomRole>(role =>
+        {
+            role.Property(r => r.Key).HasMaxLength(64);
+            role.Property(r => r.AssignableAt).HasMaxLength(16);
+            // A key is unique within its owning scope: the tenant for a
+            // tenant-owned role (workspace_id null), the workspace for a
+            // workspace-local one. workspace_id is always null this increment;
+            // AreNullsDistinct(false) makes two null workspace_ids collide, so
+            // two tenant-owned roles cannot share a key (a plain unique index
+            // would treat null != null and let duplicates through).
+            role.HasIndex(r => new { r.TenantId, r.WorkspaceId, r.Key })
+                .IsUnique()
+                .AreNullsDistinct(false);
+            ApplyTenantFilter(role);
+        });
+
+        modelBuilder.Entity<RolePermission>(permission =>
+        {
+            permission.HasKey(p => new { p.RoleId, p.Permission });
+            permission.Property(p => p.Permission).HasMaxLength(64);
+            // Intra-schema FK: a custom role's permissions vanish with it
+            // (cascade). Cross-tenant is impossible - both ends carry tenant_id
+            // under the same RLS policy.
+            permission.HasOne<CustomRole>()
+                .WithMany()
+                .HasForeignKey(p => p.RoleId)
+                .OnDelete(DeleteBehavior.Cascade);
+            ApplyTenantFilter(permission);
+        });
+
+        modelBuilder.Entity<RoleAssignment>(assignment =>
+        {
+            assignment.Property(a => a.PrincipalType).HasMaxLength(16);
+            assignment.Property(a => a.ScopeType).HasMaxLength(16);
+            // A role in use cannot be deleted (the service guardrail rejects it;
+            // Restrict is the database backstop, so a grant never dangles).
+            assignment.HasOne<CustomRole>()
+                .WithMany()
+                .HasForeignKey(a => a.RoleId)
+                .OnDelete(DeleteBehavior.Restrict);
+            // Uniqueness is per scope kind: a null scope_id would not collide
+            // under a plain unique constraint, so each scope gets its own
+            // partial unique index (the tenant-scope one omits scope_id; the
+            // workspace-scope one includes it, for the forward-compat increment).
+            assignment.HasIndex(a => new { a.TenantId, a.PrincipalType, a.PrincipalId, a.RoleId })
+                .IsUnique()
+                .HasFilter("scope_type = 'tenant'")
+                .HasDatabaseName("ix_role_assignments_tenant_scope_unique");
+            assignment.HasIndex(a => new { a.TenantId, a.PrincipalType, a.PrincipalId, a.RoleId, a.ScopeId })
+                .IsUnique()
+                .HasFilter("scope_type = 'workspace'")
+                .HasDatabaseName("ix_role_assignments_workspace_scope_unique");
+            ApplyTenantFilter(assignment);
         });
     }
 }

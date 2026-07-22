@@ -142,6 +142,23 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 403 for a tenant member whose effective permission set does not include
+    /// the permission the endpoint requires (RBAC section 13, the
+    /// RequirePermission gate). The detail names the shortfall generically.
+    /// </summary>
+    public static ProblemDetails PermissionRequired(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status403Forbidden,
+            ProblemTypes.PermissionRequired,
+            "You do not have the required permission in this tenant.",
+            "This action needs a permission your role and grants do not confer.");
+    }
+
+    /// <summary>
     /// 403 for an authenticated caller who is not a platform super-admin hitting
     /// a platform control-plane endpoint (multi-tenancy.md section 7). Platform
     /// power is membership of platform.platform_admins, never a tenant role.

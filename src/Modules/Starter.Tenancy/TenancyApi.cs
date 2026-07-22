@@ -17,6 +17,8 @@ internal sealed class TenancyApi(
     TenantProvisioner provisioner,
     MembershipDirectory memberships,
     TenantRoleResolver roles,
+    PermissionResolver permissions,
+    CustomRoleService customRoles,
     TenantAdminService admin,
     InvitationAcceptor acceptor,
     PlatformAdminDirectory platformAdmins,
@@ -81,6 +83,9 @@ internal sealed class TenancyApi(
     public Task<TenantRole?> GetCallerRoleAsync(Guid userId, CancellationToken cancellationToken) =>
         roles.GetCallerRoleAsync(userId, cancellationToken);
 
+    public Task<IReadOnlySet<string>> GetCallerPermissionsAsync(Guid userId, CancellationToken cancellationToken) =>
+        permissions.GetCallerPermissionsAsync(userId, cancellationToken);
+
     public Task<IReadOnlyList<(Guid UserId, string Role, string Status, DateTimeOffset CreatedAt)>>
         ListMembersAsync(CancellationToken cancellationToken) =>
         admin.ListMembersAsync(cancellationToken);
@@ -122,4 +127,47 @@ internal sealed class TenancyApi(
     public Task<Result<(Guid TenantId, string Role)>> AcceptInvitationAsync(
         Guid userId, string token, CancellationToken cancellationToken) =>
         acceptor.AcceptAsync(userId, token, cancellationToken);
+
+    public Task<Result<Guid>> CreateRoleAsync(
+        Guid callerUserId,
+        string key,
+        string name,
+        string? description,
+        string assignableAt,
+        IReadOnlyCollection<string> permissions,
+        CancellationToken cancellationToken) =>
+        customRoles.CreateRoleAsync(
+            callerUserId, key, name, description, assignableAt, permissions, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid Id, string Key, string Name, string? Description, string AssignableAt, DateTimeOffset CreatedAt)>>
+        ListRolesAsync(CancellationToken cancellationToken) =>
+        customRoles.ListRolesAsync(cancellationToken);
+
+    public Task<Result<(Guid Id, string Key, string Name, string? Description, string AssignableAt, IReadOnlyList<string> Permissions, DateTimeOffset CreatedAt)>>
+        GetRoleAsync(Guid roleId, CancellationToken cancellationToken) =>
+        customRoles.GetRoleAsync(roleId, cancellationToken);
+
+    public Task<Result> UpdateRoleAsync(
+        Guid callerUserId,
+        Guid roleId,
+        string? name,
+        string? description,
+        IReadOnlyCollection<string>? permissions,
+        CancellationToken cancellationToken) =>
+        customRoles.UpdateRoleAsync(callerUserId, roleId, name, description, permissions, cancellationToken);
+
+    public Task<Result> DeleteRoleAsync(Guid callerUserId, Guid roleId, CancellationToken cancellationToken) =>
+        customRoles.DeleteRoleAsync(callerUserId, roleId, cancellationToken);
+
+    public Task<Result<Guid>> AssignRoleAsync(
+        Guid callerUserId, Guid roleId, Guid principalUserId, CancellationToken cancellationToken) =>
+        customRoles.AssignRoleAsync(callerUserId, roleId, principalUserId, cancellationToken);
+
+    public Task<Result> RevokeAssignmentAsync(
+        Guid callerUserId, Guid assignmentId, CancellationToken cancellationToken) =>
+        customRoles.RevokeAssignmentAsync(callerUserId, assignmentId, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+        ListAssignmentsAsync(CancellationToken cancellationToken) =>
+        customRoles.ListAssignmentsAsync(cancellationToken);
 }

@@ -79,6 +79,29 @@ public static class ProblemTypes
     public const string TenantRoleRequired = "starter:tenant-role-required";
 
     /// <summary>
+    /// 403: the caller is an authenticated member of the active tenant but their
+    /// effective permission set (system-role permissions plus tenant-scope
+    /// custom-role grants) does not include the permission the endpoint requires
+    /// (RBAC section 13, the RequirePermission gate). Not 404: this is the
+    /// caller's own tenant, so the honest answer is "you lack the permission".
+    /// </summary>
+    public const string PermissionRequired = "starter:permission-required";
+
+    /// <summary>
+    /// 409: a custom role with that key already exists in the owning scope (the
+    /// tenant for a tenant-owned role). A role key is caller-supplied and not a
+    /// secret, so a definite answer is fine.
+    /// </summary>
+    public const string TenantRoleKeyTaken = "starter:tenant-role-key-taken";
+
+    /// <summary>
+    /// 409: the custom role has assignments, so it cannot be deleted; its grants
+    /// must be revoked or reassigned first, so access never silently vanishes or
+    /// dangles.
+    /// </summary>
+    public const string TenantRoleInUse = "starter:tenant-role-in-use";
+
+    /// <summary>
     /// 409: the tenant is at its seat limit, so an invitation cannot be accepted
     /// into it. A seat is a countable, non-secret resource, so a definite answer
     /// is fine. Concurrent accepts serialize on a tenant row lock, so the count
