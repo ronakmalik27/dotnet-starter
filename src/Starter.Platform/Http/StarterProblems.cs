@@ -125,6 +125,23 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 403 for a tenant member whose role is below what the endpoint requires
+    /// (RBAC layer 2). The gate produces this when the caller's active-tenant
+    /// role does not meet the minimum; the detail names the shortfall generically.
+    /// </summary>
+    public static ProblemDetails TenantRoleRequired(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        return Create(
+            httpContext,
+            StatusCodes.Status403Forbidden,
+            ProblemTypes.TenantRoleRequired,
+            "You do not have the required role in this tenant.",
+            "This action needs a higher tenant role than your membership grants.");
+    }
+
+    /// <summary>
     /// 400 for a tenant-scoped endpoint reached with no resolvable tenant.
     /// A stable slug so a client can tell "you forgot to name a tenant" apart
     /// from a generic bad request.

@@ -35,7 +35,8 @@ internal sealed class IdentityApi(
     RegistrationStagingHandler registrationStaging,
     VerificationEmailComposer verificationEmail,
     IssueSessionForHandler issueSessionFor,
-    SelectTenantHandler selectTenant) : IIdentityApi
+    SelectTenantHandler selectTenant,
+    UserDirectoryQuery userDirectory) : IIdentityApi
 {
     public Task<Result> RegisterAsync(string email, string password, CancellationToken cancellationToken) =>
         register.HandleAsync(email, password, cancellationToken);
@@ -121,4 +122,10 @@ internal sealed class IdentityApi(
         Guid tenantId,
         CancellationToken cancellationToken) =>
         selectTenant.HandleAsync(userId, sessionId, tenantId, cancellationToken);
+
+    public Task<string?> GetEmailAsync(Guid userId, CancellationToken cancellationToken) =>
+        userDirectory.GetEmailAsync(userId, cancellationToken);
+
+    public Task<Guid?> FindUserIdByEmailAsync(string email, CancellationToken cancellationToken) =>
+        userDirectory.FindUserIdByEmailAsync(email, cancellationToken);
 }

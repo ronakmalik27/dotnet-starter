@@ -27,6 +27,8 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
 
     public DbSet<Membership> Memberships => Set<Membership>();
 
+    public DbSet<Invitation> Invitations => Set<Invitation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -56,6 +58,19 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
             // lookup index (tenant_id, user_id).
             membership.HasIndex(m => new { m.TenantId, m.UserId }).IsUnique();
             ApplyTenantFilter(membership);
+        });
+
+        modelBuilder.Entity<Invitation>(invitation =>
+        {
+            invitation.Property(i => i.Email).HasColumnType("citext");
+            invitation.Property(i => i.Role).HasMaxLength(32);
+            invitation.Property(i => i.TokenHash).HasMaxLength(64);
+            // The accept lookup keys on the hash (a plain index; the accept
+            // path reads it on the bypass source before any tenant is bound).
+            invitation.HasIndex(i => i.TokenHash);
+            // The pending-list and duplicate-invite checks key on (tenant, email).
+            invitation.HasIndex(i => new { i.TenantId, i.Email });
+            ApplyTenantFilter(invitation);
         });
     }
 }

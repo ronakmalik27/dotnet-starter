@@ -70,6 +70,43 @@ public static class ProblemTypes
     /// </summary>
     public const string TenantMembershipNotFound = "starter:tenant-membership-not-found";
 
+    /// <summary>
+    /// 403: the caller is an authenticated member of the active tenant but their
+    /// role is below the minimum the endpoint requires (RBAC layer 2 -
+    /// owner &gt; admin &gt; member). Not 404: this is the caller's own tenant, so
+    /// the honest answer is "you lack the role", not "no such thing".
+    /// </summary>
+    public const string TenantRoleRequired = "starter:tenant-role-required";
+
+    /// <summary>
+    /// 409: the tenant is at its seat limit, so an invitation cannot be accepted
+    /// into it. A seat is a countable, non-secret resource, so a definite answer
+    /// is fine. Concurrent accepts serialize on a tenant row lock, so the count
+    /// can never overrun the limit.
+    /// </summary>
+    public const string TenantSeatLimitReached = "starter:tenant-seat-limit-reached";
+
+    /// <summary>
+    /// 404: the presented invitation token is unknown, already accepted, expired,
+    /// or does not match the authenticated caller's email. Every miss collapses
+    /// to this one answer so a holder cannot probe which invitations exist.
+    /// </summary>
+    public const string TenantInvitationInvalid = "starter:tenant-invitation-invalid";
+
+    /// <summary>
+    /// 409: the operation would leave the tenant with no owner (demoting or
+    /// removing the last owner). Ownership moves through transfer-ownership, never
+    /// by dropping the only owner.
+    /// </summary>
+    public const string TenantLastOwner = "starter:tenant-last-owner";
+
+    /// <summary>
+    /// 409: the target account is already an active member of the tenant (or a
+    /// pending invitation already covers it), so the membership cannot be created
+    /// again. The unique (tenant_id, user_id) index is the backstop.
+    /// </summary>
+    public const string TenantMembershipConflict = "starter:tenant-membership-conflict";
+
     /// <summary>405: the HTTP method is not supported on this route.</summary>
     public const string MethodNotAllowed = "starter:method-not-allowed";
 

@@ -153,20 +153,27 @@ revoked member cannot mint or keep using a `tid` token for a tenant they left.
 ## 5. Authorization: three layered checks
 
 Authorization for a tenant-scoped request composes three independent layers, in
-order, each a small policy handler in the existing per-request
-`IAuthorizationService` model:
+order:
 
 1. **Tenant boundary** (RLS + the `tid` claim + the EF filter). The caller only
    ever sees rows of the active tenant, enforced below the application.
-2. **Tenant role capability** (RBAC). `TenantRoleAuthorizationHandler` resolves
-   the caller's membership role in the active tenant and grants tenant-scoped
-   operations. `owner > admin > member`. For example
-   `TenantOperations.ManageMembers` requires `admin` or above;
-   `DeleteTenant` and `TransferOwnership` require `owner`. Roles map to a
-   permission set in one place, extensible without touching endpoints.
-3. **Resource ownership** (the existing `ResourceOwnerAuthorizationHandler`,
-   unchanged). Within a tenant a `member` still only edits resources they own; an
-   `admin` may manage any resource in the tenant. Ownership is the inner check.
+2. **Tenant role capability** (RBAC), an endpoint filter in the
+   `RequireVerifiedEmail` / `RequireTenant` idiom: `RequireTenantRole(minimum)`
+   resolves the caller's membership role in the active tenant (per request, from
+   `tenancy.memberships` under RLS) and 403s below the minimum with a stable
+   `starter:tenant-role-required` problem. `owner > admin > member`. Member
+   management and invitations require `admin` or above; `DeleteTenant` and
+   `TransferOwnership` require `owner`. The gate resolves the role through
+   `ITenancyApi` on `http.RequestServices`, so the capability check stays a
+   transport-layer concern like the other endpoint gates, not a policy handler.
+3. **Resource ownership** (the `IAuthorizationService` model). The existing
+   `ResourceOwnerAuthorizationHandler` (unchanged) grants the resource owner, and
+   a second `TenantAdminResourceAuthorizationHandler` also grants a caller who is
+   `admin` or above in the active tenant (resolved through a platform-level
+   `ITenantRoleReader` seam the Tenancy module implements). ASP.NET Core grants
+   if any handler succeeds, so the effective rule is owner OR tenant-admin+: a
+   `member` still only manages resources they own; an `admin` may manage any
+   resource in the tenant. Ownership is the inner check.
 
 The role is read per request from `tenancy.memberships`, cached per request. The
 token carries no roles: same "resolve authorization per request against the

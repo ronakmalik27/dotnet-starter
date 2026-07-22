@@ -285,12 +285,14 @@ if (postgres is not null)
         .AddIdentityModule(requestConnection, signingKey, builder.Configuration)
         .AddSampleModule(requestConnection)
         // Tenancy takes the request connection for its scoped context; its
-        // provisioner and membership directory additionally inject the already-
-        // registered BypassDataSource singleton for their cross-tenant work. Its
-        // schema is migrated on the bypass connection with the others (its
-        // ModuleSchema descriptor is picked up by the bootstrap block below), so
-        // the request role gets its grants and RLS binds it.
-        .AddTenancyModule(requestConnection);
+        // provisioner, membership directory, and invitation acceptor additionally
+        // inject the already-registered BypassDataSource singleton for their
+        // cross-tenant work. Configuration carries the invitation link template
+        // (Tenancy:Invitations). Its schema is migrated on the bypass connection
+        // with the others (its ModuleSchema descriptor is picked up by the
+        // bootstrap block below), so the request role gets its grants and RLS
+        // binds it.
+        .AddTenancyModule(requestConnection, builder.Configuration);
 
     // DataProtection persists its key ring to the platform context (keys
     // survive restarts and are shared across replicas). Needs the platform
@@ -396,6 +398,9 @@ if (postgres is not null)
 {
     app.MapIdentityEndpoints();
     app.MapTenancyEndpoints();
+    // The tenant-admin control plane (member/invitation management, settings,
+    // ownership, soft-delete, seats), all over the active tenant (/api/v1/tenant).
+    app.MapTenantAdminEndpoints();
 
     ApiVersionSet versionSet = app.NewApiVersionSet()
         .HasApiVersion(new ApiVersion(1))

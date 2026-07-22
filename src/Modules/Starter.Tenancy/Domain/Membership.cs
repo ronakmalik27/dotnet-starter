@@ -1,3 +1,4 @@
+using Starter.Platform.Auth;
 using Starter.Platform.Tenancy;
 
 namespace Starter.Tenancy.Domain;
@@ -38,6 +39,32 @@ internal static class MembershipRole
     public const string Admin = "admin";
 
     public const string Member = "member";
+}
+
+/// <summary>
+/// Maps between the stored role strings and the platform's ranked
+/// <see cref="TenantRole"/>. The storage strings are the schema's source of
+/// truth (owner | admin | member); the enum is the shared surface a capability
+/// check compares against. Keeping the map in one place means the rank order
+/// (owner &gt; admin &gt; member) and the string spellings never drift.
+/// </summary>
+internal static class MembershipRoles
+{
+    /// <summary>The ranked role for a stored string, or null for an unknown value.</summary>
+    public static TenantRole? ToTenantRole(string role) => role switch
+    {
+        MembershipRole.Owner => TenantRole.Owner,
+        MembershipRole.Admin => TenantRole.Admin,
+        MembershipRole.Member => TenantRole.Member,
+        _ => null,
+    };
+
+    /// <summary>
+    /// True for a role an admin may assign or invite (admin | member). Owner is
+    /// excluded on purpose: ownership moves through transfer-ownership only.
+    /// </summary>
+    public static bool IsAssignable(string role) =>
+        role is MembershipRole.Admin or MembershipRole.Member;
 }
 
 /// <summary>tenancy.memberships.status values.</summary>

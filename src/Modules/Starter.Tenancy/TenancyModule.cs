@@ -1,5 +1,11 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Starter.Tenancy.Admin;
 using Starter.Tenancy.ControlPlane;
+using Starter.Tenancy.Invitations;
+using Starter.Tenancy.Rbac;
+using Starter.Platform.Auth;
 using Starter.Platform.Data;
 
 namespace Starter.Tenancy;
@@ -15,22 +21,53 @@ public static class TenancyModule
     /// <summary>
     /// Registers the module against <paramref name="connectionString"/> (the
     /// request-role connection, for the scoped context). The self-serve
-    /// provisioner and the membership directory additionally inject the platform
-    /// <c>BypassDataSource</c> singleton (already registered by the composition
-    /// root) for their explicitly cross-tenant work; the OutboxWriter and
-    /// ITenancyApi's Identity dependency are resolved from the same host.
+    /// provisioner, the membership directory, and the invitation acceptor
+    /// additionally inject the platform <c>BypassDataSource</c> singleton (already
+    /// registered by the composition root) for their explicitly cross-tenant
+    /// work; the OutboxWriter and the platform Identity ports are resolved from
+    /// the same host. <paramref name="configuration"/> carries the
+    /// Tenancy:Invitations link template (guarded for null exactly like the
+    /// Identity email options: the module still boots with the default).
     /// </summary>
     public static IServiceCollection AddTenancyModule(
         this IServiceCollection services,
-        string connectionString)
+        string connectionString,
+        IConfiguration? configuration = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddModuleDbContext<TenancyDbContext>(TenancyDbContext.SchemaName, connectionString);
 
+        // The invitation link template (Tenancy:Invitations), validated at
+        // startup: the [Required] annotation plus the {token}-placeholder rule.
+        // The default satisfies both, so a zero-config host still boots.
+        var invitations = services.AddOptions<InvitationEmailOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        if (configuration is not null)
+        {
+            invitations.Bind(configuration.GetSection(InvitationEmailOptions.SectionName));
+        }
+
+        services.AddSingleton<IValidateOptions<InvitationEmailOptions>, InvitationEmailOptionsValidator>();
+        services.AddScoped<InvitationEmailComposer>();
+
+        // Bypass-path (cross-tenant control plane) slices.
         services.AddScoped<TenantProvisioner>();
         services.AddScoped<MembershipDirectory>();
+        services.AddScoped<InvitationAcceptor>();
+
+        // Request-path (RLS-bound) slices.
+        services.AddScoped<TenantRoleResolver>();
+        services.AddScoped<TenantAdminService>();
+
         services.AddScoped<ITenancyApi, TenancyApi>();
+
+        // Bridge the platform-declared role-reader port (used by the layer-3
+        // resource handler in the platform) to the request-path resolver, so the
+        // platform never references this module and there is one lookup.
+        services.AddScoped<ITenantRoleReader>(
+            provider => provider.GetRequiredService<TenantRoleResolver>());
 
         return services;
     }

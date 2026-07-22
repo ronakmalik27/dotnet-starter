@@ -42,8 +42,6 @@ internal sealed class TenantProvisioner(
     Clock clock,
     ILogger<TenantProvisioner> logger)
 {
-    private const int MaxSlugLength = 63;
-
     // A sensible free-tier default: a self-serve tenant starts small and raises
     // its seat limit on a paid plan (out of scope this increment).
     private const int DefaultSeatLimit = 5;
@@ -72,7 +70,7 @@ internal sealed class TenantProvisioner(
                 ErrorKind.Validation, "tenancy.name_required", "A tenant name is required."));
         }
 
-        if (!IsValidSlug(slug))
+        if (!TenantSlugs.IsValid(slug))
         {
             return Result.Failure<SelfServeSignup>(new Error(
                 ErrorKind.Validation,
@@ -197,29 +195,6 @@ internal sealed class TenantProvisioner(
         }
 
         return Result.Success(SelfServeSignup.Created(login.Value));
-    }
-
-    private static bool IsValidSlug(string slug)
-    {
-        // Letters (either case; citext makes uniqueness case-insensitive),
-        // digits, and hyphens, within the label length ceiling. Deliberately
-        // permissive on case so "Acme" and "acme" are both valid inputs that
-        // then collide on the citext unique index.
-        if (slug.Length is 0 or > MaxSlugLength)
-        {
-            return false;
-        }
-
-        foreach (var character in slug)
-        {
-            var isAllowed = char.IsAsciiLetterOrDigit(character) || character == '-';
-            if (!isAllowed)
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static bool IsUniqueViolation(DbUpdateException exception) =>

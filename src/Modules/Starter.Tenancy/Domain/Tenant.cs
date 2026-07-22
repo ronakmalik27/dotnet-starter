@@ -21,8 +21,12 @@ internal sealed class Tenant : ITenantOwned
     /// </summary>
     public Guid TenantId => Id;
 
-    /// <summary>Case-insensitive unique (citext), caller-supplied at signup.</summary>
-    public required string Slug { get; init; }
+    /// <summary>
+    /// Case-insensitive unique (citext), caller-supplied at signup and settable
+    /// by a tenant-admin settings update (the citext unique index guards a
+    /// collision).
+    /// </summary>
+    public required string Slug { get; set; }
 
     public required string Name { get; set; }
 

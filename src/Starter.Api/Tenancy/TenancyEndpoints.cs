@@ -48,6 +48,15 @@ public static class TenancyEndpoints
         app.MapPost("/api/v1/tenants/{id:guid}/token", IssueTenantTokenAsync)
             .RequireAuthorization();
 
+        // Accepting an invitation is its OWN endpoint, not a tenant-admin one:
+        // the invitee holds no tid or role for the target tenant yet, so it
+        // cannot sit behind RequireTenant / RequireTenantRole. It is authorized
+        // by possession of the hashed, single-use, expiring token PLUS an
+        // authenticated user whose email matches the invitation (the acceptor's
+        // defense-in-depth check). It runs cross-tenant on the bypass path.
+        app.MapPost("/api/v1/invitations/accept", AcceptInvitationAsync)
+            .RequireAuthorization();
+
         return app;
     }
 
@@ -150,6 +159,35 @@ public static class TenancyEndpoints
             error => error.ToProblemResult(http));
     }
 
+    private static async Task<IResult> AcceptInvitationAsync(
+        AcceptInvitationRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        // RequireAuthorization gates the route; read sub off the token. Fail
+        // closed if it is somehow absent.
+        var userId = http.User.GetUserId();
+        if (userId is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Token))
+        {
+            return Validation(http, "token", "An invitation token is required.");
+        }
+
+        var result = await tenancy.AcceptInvitationAsync(userId.Value, request.Token, cancellationToken);
+        return result.Match(
+            accepted => (IResult)TypedResults.Ok(new AcceptInvitationResponse(accepted.TenantId, accepted.Role)),
+            error => TenancyProblems.From(http, error));
+    }
+
+    private static ProblemHttpResult Validation(HttpContext http, string field, string message) =>
+        TypedResults.Problem(StarterProblems.Validation(
+            http, new Dictionary<string, string[]> { [field] = [message] }));
+
     private static ProblemHttpResult SlugTaken(HttpContext http, string detail)
     {
         var problem = StarterProblems.ForStatus(http, StatusCodes.Status409Conflict);
@@ -186,3 +224,9 @@ public static class TenancyEndpoints
 
 /// <summary>POST /api/v1/signup body.</summary>
 public sealed record SignupRequest(string? Email, string? Password, string? TenantName, string? Slug);
+
+/// <summary>POST /api/v1/invitations/accept body.</summary>
+public sealed record AcceptInvitationRequest(string? Token);
+
+/// <summary>POST /api/v1/invitations/accept success: the joined tenant and the granted role.</summary>
+public sealed record AcceptInvitationResponse(Guid TenantId, string Role);

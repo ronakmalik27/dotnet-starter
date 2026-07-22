@@ -113,12 +113,15 @@ public static class IdentityModule
         services.AddScoped<VerificationStatusHandler>();
         services.AddScoped<ResendVerificationHandler>();
         services.AddScoped<VerifiedEmailQuery>();
+        services.AddScoped<UserDirectoryQuery>();
         services.AddScoped<IIdentityApi, IdentityApi>();
 
-        // Bridge the platform-declared provisioning port to the same IIdentityApi
-        // instance, so the tenancy provisioner depends on the port (never on this
-        // module) and there is one implementation with no drift.
+        // Bridge the platform-declared ports to the same IIdentityApi instance,
+        // so the consumers depend on the ports (never on this module) and there
+        // is one implementation with no drift.
         services.AddScoped<ITenantProvisioningIdentity>(
+            provider => provider.GetRequiredService<IIdentityApi>());
+        services.AddScoped<IUserDirectory>(
             provider => provider.GetRequiredService<IIdentityApi>());
 
         // The account-security notifications consumer. Singleton and

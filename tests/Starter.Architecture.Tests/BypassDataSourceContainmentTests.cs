@@ -39,12 +39,17 @@ public class BypassDataSourceContainmentTests
 {
     private const string BypassTypeFullName = "Starter.Platform.Tenancy.BypassDataSource";
 
-    // The only types permitted to touch the bypass data source, both in
-    // Starter.Tenancy and both genuinely cross-tenant control-plane work.
+    // The only types permitted to touch the bypass data source, all in
+    // Starter.Tenancy and all genuinely cross-tenant control-plane work: the
+    // self-serve provisioner (a boundary must exist before any tenant context),
+    // the membership directory (the mint check keys on a tenant the caller holds
+    // no tid for yet), and the invitation acceptor (the invitee is not yet a
+    // member, so the token lookup and seat check cross the boundary).
     private static readonly string[] TenancyAllowlist =
     [
         "Starter.Tenancy.ControlPlane.TenantProvisioner",
         "Starter.Tenancy.ControlPlane.MembershipDirectory",
+        "Starter.Tenancy.ControlPlane.InvitationAcceptor",
     ];
 
     [Fact]

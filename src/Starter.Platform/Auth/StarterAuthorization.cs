@@ -27,6 +27,14 @@ public static class StarterAuthorization
         // Stateless, so a singleton: it holds no per-request state and reads
         // the caller's sub off the principal passed into each check.
         services.AddSingleton<IAuthorizationHandler, ResourceOwnerAuthorizationHandler>();
+
+        // The tenant-admin resource layer (multi-tenancy.md section 5, layer 3):
+        // an admin+ manages any resource in the active tenant. Scoped, because it
+        // reads the caller's role through the request-scoped ITenantRoleReader
+        // seam (bridged to the Tenancy module by the composition root). It runs
+        // alongside the owner handler, so the effective rule is "owner OR
+        // tenant-admin+".
+        services.AddScoped<IAuthorizationHandler, TenantAdminResourceAuthorizationHandler>();
         services.AddAuthorization();
         return services;
     }
