@@ -247,6 +247,66 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
         bool? archived,
         CancellationToken cancellationToken);
 
+    // --- Role-template catalogue (operator-owned, bypass path) -------------
+    // The role-template catalogue (role-templates-and-policy-defaults.md section 2)
+    // is global operator vocabulary, edited only on the bypass path behind
+    // RequirePlatformAdmin. A template is SEEDED into a tenant as one of its OWN
+    // custom roles (the tenant then owns the copy); editing a template does not
+    // retro-change already-seeded copies. permissions and assignableScopes are exact
+    // sets, never "unrestricted".
+
+    /// <summary>Lists the role-template catalogue: key, name, description, permissions, assignable scopes, timestamps.</summary>
+    Task<IReadOnlyList<(string Key, string Name, string Description, IReadOnlyList<string> Permissions, IReadOnlyList<string> AssignableScopes, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListRoleTemplatesAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a role-template catalogue entry; audited synchronously on the platform
+    /// audit log. Every permission must be a real catalogue atom and none
+    /// owner-reserved (Validation otherwise); <paramref name="assignableScopes"/> must
+    /// be a non-empty subset of {tenant, workspace}. A duplicate key is a Conflict.
+    /// </summary>
+    Task<Result> CreateRoleTemplateAsync(
+        Guid actorUserId,
+        string key,
+        string name,
+        string description,
+        IReadOnlyList<string> permissions,
+        IReadOnlyList<string> assignableScopes,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Updates a role-template catalogue entry (PATCH semantics: a null argument
+    /// leaves that facet unchanged; a supplied array replaces, validated like create).
+    /// An unknown key is a NotFound. Audited synchronously. Does NOT retro-change
+    /// already-seeded tenant copies.
+    /// </summary>
+    Task<Result> UpdateRoleTemplateAsync(
+        Guid actorUserId,
+        string key,
+        string? name,
+        string? description,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyList<string>? assignableScopes,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a role-template catalogue entry; audited synchronously. An unknown key
+    /// is a NotFound. Already-seeded tenant copies are the tenants' own roles and are
+    /// untouched.
+    /// </summary>
+    Task<Result> DeleteRoleTemplateAsync(Guid actorUserId, string key, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Seeds one role template into every tenant (or the single
+    /// <paramref name="tenantId"/> when given) as an ordinary tenant custom role,
+    /// idempotently via the template_key guard (a tenant already carrying it is
+    /// skipped). Permissions are filtered to each tenant's plan-allowed subset (skip
+    /// disallowed, never escalate). Returns the number of tenants newly seeded. A
+    /// missing template - or a named tenant that does not exist - is a NotFound.
+    /// </summary>
+    Task<Result<int>> SeedRoleTemplateAsync(
+        Guid actorUserId, string key, Guid? tenantId, CancellationToken cancellationToken);
+
     // --- Tenant-admin control plane (active tenant, request path under RLS) ---
     // Every command below operates on the ACTIVE tenant resolved from the tid
     // claim; the endpoint gates each with RequireTenant + RequireTenantRole

@@ -276,6 +276,14 @@ public static class ProblemTypes
     public const string PlatformPlanDefaultConflict = "starter:platform-plan-default-conflict";
 
     /// <summary>
+    /// 409: creating a role template asked for a key that already exists in the
+    /// catalogue (role-templates-and-policy-defaults.md section 2). A template key is
+    /// operator-chosen and not a secret, so a definite answer is fine (the
+    /// role_templates pk is the backstop).
+    /// </summary>
+    public const string PlatformRoleTemplateKeyTaken = "starter:platform-role-template-key-taken";
+
+    /// <summary>
     /// 403: a tenant admin tried to set or clear an override for a feature flag the
     /// operator did NOT mark tenant-overridable (feature-flags.md section 5). The
     /// operator holds the flag centrally (a kill switch or a not-yet-GA feature), so

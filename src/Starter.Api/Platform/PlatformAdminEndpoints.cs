@@ -51,6 +51,12 @@ public static class PlatformAdminEndpoints
         platform.MapPost("/feature-flags", CreateFeatureFlagAsync);
         platform.MapPatch("/feature-flags/{key}", UpdateFeatureFlagAsync);
 
+        platform.MapGet("/role-templates", ListRoleTemplatesAsync);
+        platform.MapPost("/role-templates", CreateRoleTemplateAsync);
+        platform.MapPatch("/role-templates/{key}", UpdateRoleTemplateAsync);
+        platform.MapDelete("/role-templates/{key}", DeleteRoleTemplateAsync);
+        platform.MapPost("/role-templates/{key}/seed", SeedRoleTemplateAsync);
+
         platform.MapGet("/admins", ListAdminsAsync);
         platform.MapPost("/admins", GrantAdminAsync);
         platform.MapDelete("/admins/{userId:guid}", RevokeAdminAsync);
@@ -299,6 +305,122 @@ public static class PlatformAdminEndpoints
             error => PlatformAdminProblems.From(http, error));
     }
 
+    private static async Task<IResult> ListRoleTemplatesAsync(
+        ITenancyApi tenancy, CancellationToken cancellationToken)
+    {
+        var templates = await tenancy.ListRoleTemplatesAsync(cancellationToken);
+        var items = templates
+            .Select(template => new RoleTemplateResponse(
+                template.Key,
+                template.Name,
+                template.Description,
+                template.Permissions,
+                template.AssignableScopes,
+                template.CreatedAt,
+                template.UpdatedAt))
+            .ToList();
+        return Results.Ok(items);
+    }
+
+    private static async Task<IResult> CreateRoleTemplateAsync(
+        CreateRoleTemplateRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Key))
+        {
+            return Validation(http, "key", "A role template key is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return Validation(http, "name", "A role template name is required.");
+        }
+
+        var result = await tenancy.CreateRoleTemplateAsync(
+            actor.Value,
+            request.Key,
+            request.Name,
+            request.Description ?? string.Empty,
+            request.Permissions ?? [],
+            request.AssignableScopes ?? [],
+            cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
+    private static async Task<IResult> UpdateRoleTemplateAsync(
+        string key,
+        UpdateRoleTemplateRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await tenancy.UpdateRoleTemplateAsync(
+            actor.Value,
+            key,
+            request.Name,
+            request.Description,
+            request.Permissions,
+            request.AssignableScopes,
+            cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
+    private static async Task<IResult> DeleteRoleTemplateAsync(
+        string key, ITenancyApi tenancy, HttpContext http, CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await tenancy.DeleteRoleTemplateAsync(actor.Value, key, cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
+    private static async Task<IResult> SeedRoleTemplateAsync(
+        string key,
+        SeedRoleTemplateRequest? request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken,
+        Guid? tenantId = null)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        // The target tenant may come from the body or a query parameter; a null
+        // target seeds the template into every tenant.
+        var target = request?.TenantId ?? tenantId;
+        var result = await tenancy.SeedRoleTemplateAsync(actor.Value, key, target, cancellationToken);
+        return result.Match(
+            seeded => (IResult)Results.Ok(new SeedRoleTemplateResponse(seeded)),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
     private static async Task<IResult> ListAdminsAsync(
         ITenancyApi tenancy, CancellationToken cancellationToken)
     {
@@ -510,6 +632,49 @@ public sealed record UpdateFeatureFlagRequest(
     int? RolloutPercentage,
     bool? TenantOverridable,
     bool? Archived);
+
+/// <summary>
+/// GET /api/v1/platform/role-templates item
+/// (role-templates-and-policy-defaults.md section 2). <paramref name="Permissions"/>
+/// and <paramref name="AssignableScopes"/> are exact sets, never "unrestricted".
+/// </summary>
+public sealed record RoleTemplateResponse(
+    string Key,
+    string Name,
+    string Description,
+    IReadOnlyList<string> Permissions,
+    IReadOnlyList<string> AssignableScopes,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>
+/// POST /api/v1/platform/role-templates body. <paramref name="Permissions"/> are
+/// catalogue atoms (none owner-reserved); <paramref name="AssignableScopes"/> is a
+/// non-empty subset of {tenant, workspace}.
+/// </summary>
+public sealed record CreateRoleTemplateRequest(
+    string? Key,
+    string? Name,
+    string? Description,
+    IReadOnlyList<string>? Permissions,
+    IReadOnlyList<string>? AssignableScopes);
+
+/// <summary>PATCH /api/v1/platform/role-templates/{key} body. A null field leaves that facet unchanged.</summary>
+public sealed record UpdateRoleTemplateRequest(
+    string? Name,
+    string? Description,
+    IReadOnlyList<string>? Permissions,
+    IReadOnlyList<string>? AssignableScopes);
+
+/// <summary>
+/// POST /api/v1/platform/role-templates/{key}/seed body. <paramref name="TenantId"/>
+/// null (or the body omitted) seeds every tenant; a value seeds only that tenant. A
+/// <c>tenantId</c> query parameter is an equivalent alternative.
+/// </summary>
+public sealed record SeedRoleTemplateRequest(Guid? TenantId);
+
+/// <summary>POST /api/v1/platform/role-templates/{key}/seed success: how many tenants were newly seeded.</summary>
+public sealed record SeedRoleTemplateResponse(int Seeded);
 
 /// <summary>GET /api/v1/platform/admins item.</summary>
 public sealed record PlatformAdminResponse(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt);

@@ -41,6 +41,16 @@ internal sealed class CustomRole : ITenantOwned
     /// </summary>
     public Guid? WorkspaceId { get; init; }
 
+    /// <summary>
+    /// The platform role-template this role was SEEDED from
+    /// (role-templates-and-policy-defaults.md section 2), or null for a
+    /// tenant-authored role. A partial unique index (tenant_id, template_key)
+    /// WHERE template_key IS NOT NULL makes a re-seed idempotent. Once seeded the
+    /// copy is the tenant's own - it may be renamed, re-permissioned, or deleted,
+    /// and editing the template later does not retro-change it.
+    /// </summary>
+    public string? TemplateKey { get; init; }
+
     /// <summary>The user who authored the role. A bare id by value, no cross-schema FK.</summary>
     public required Guid CreatedBy { get; init; }
 
@@ -67,4 +77,25 @@ internal static class RoleAssignableAt
         AssignmentScope.Workspace => assignableAt is Workspace or Both,
         _ => false,
     };
+
+    /// <summary>
+    /// Maps a role template's <c>assignable_scopes</c> set (a subset of
+    /// {tenant, workspace}, role-templates-and-policy-defaults.md section 2) to the
+    /// single assignable_at value a seeded custom role carries: both scopes present
+    /// is <see cref="Both"/>, workspace only is <see cref="Workspace"/>, otherwise
+    /// <see cref="Tenant"/> (the template validation guarantees a non-empty subset,
+    /// so the fall-through is the tenant-only case).
+    /// </summary>
+    public static string FromScopes(IReadOnlyCollection<string> scopes)
+    {
+        ArgumentNullException.ThrowIfNull(scopes);
+        var tenant = scopes.Contains(AssignmentScope.Tenant);
+        var workspace = scopes.Contains(AssignmentScope.Workspace);
+        return (tenant, workspace) switch
+        {
+            (true, true) => Both,
+            (false, true) => Workspace,
+            _ => Tenant,
+        };
+    }
 }

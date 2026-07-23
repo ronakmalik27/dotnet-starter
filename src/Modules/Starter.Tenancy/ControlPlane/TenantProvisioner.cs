@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Starter.Tenancy.Domain;
+using Starter.Tenancy.Rbac;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
 using Starter.Platform.Events;
@@ -40,6 +41,7 @@ internal sealed class TenantProvisioner(
     BypassDataSource bypass,
     ITenantProvisioningIdentity identity,
     OutboxWriter outbox,
+    CustomRoleService customRoles,
     Clock clock,
     ILogger<TenantProvisioner> logger)
 {
@@ -99,6 +101,12 @@ internal sealed class TenantProvisioner(
             // provisioning transaction; a plain SELECT auto-commits. Falls back to
             // free / 5 only if no default row exists (an emptied catalogue).
             var (defaultPlan, defaultSeatLimit) = await ReadDefaultPlanAsync(connection, cancellationToken);
+
+            // The active role templates the new tenant is seeded from
+            // (role-templates-and-policy-defaults.md section 2). Read on the bypass
+            // connection (platform.role_templates is off the request role's reach), a
+            // plain SELECT that auto-commits, before the provisioning transaction opens.
+            var templates = await ReadActiveTemplatesAsync(connection, cancellationToken);
 
             var options = StarterDbContextOptions.ForConnection<TenancyDbContext>(connection).Options;
 
@@ -179,6 +187,40 @@ internal sealed class TenantProvisioner(
                 TenancyEvents.MembershipCreated(membershipId, newTenantId, newUserId, MembershipRole.Owner, now),
                 cancellationToken);
 
+            // Seed one tenant custom role per active role template
+            // (role-templates-and-policy-defaults.md section 2), INSIDE this same
+            // provisioning transaction (atomic with the user+tenant+membership commit
+            // - a cheap local write, no external I/O). Each insert goes through the
+            // custom-role helper on THIS open transaction (never CreateRoleAsync,
+            // which would begin a second transaction and throw), filtering the
+            // template's permissions to the plan-allowed subset (skip disallowed,
+            // never escalate past the plan) and stamping template_key so a later
+            // re-seed is idempotent. An empty seeded role is still created. On a
+            // brand-new tenant there is no pre-existing role to clash with, so any
+            // failure here is a genuine error and rolls the whole provision back -
+            // "a failure leaves neither a user nor a tenant".
+            foreach (var template in templates)
+            {
+                var seeded = await customRoles.InsertRoleOnOpenTransactionAsync(
+                    db,
+                    newTenantId,
+                    newUserId,
+                    template.Key,
+                    template.Name,
+                    template.Description,
+                    RoleAssignableAt.FromScopes(template.AssignableScopes),
+                    workspaceId: null,
+                    templateKey: template.Key,
+                    template.Permissions,
+                    skipDisallowedByPlan: true,
+                    now,
+                    cancellationToken);
+                if (seeded.IsFailure)
+                {
+                    return Result.Failure<SelfServeSignup>(seeded.Error);
+                }
+            }
+
             await transaction.CommitAsync(cancellationToken);
         }
 
@@ -218,6 +260,35 @@ internal sealed class TenantProvisioner(
     /// row exists or its limits omit a positive seatLimit, so provisioning always
     /// lands a usable seat limit.
     /// </summary>
+    /// <summary>
+    /// Reads every role template from platform.role_templates on the bypass
+    /// connection (role-templates-and-policy-defaults.md section 2), so a new tenant
+    /// is seeded one custom role per template. There is no active/archived state, so
+    /// every catalogue row is seeded.
+    /// </summary>
+    private static async Task<IReadOnlyList<RoleTemplateSeed>> ReadActiveTemplatesAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select key, name, description, permissions, assignable_scopes "
+            + "from platform.role_templates order by created_at, key",
+            connection);
+
+        var templates = new List<RoleTemplateSeed>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            templates.Add(new RoleTemplateSeed(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetFieldValue<string[]>(3),
+                reader.GetFieldValue<string[]>(4)));
+        }
+
+        return templates;
+    }
+
     private static async Task<(string Plan, int SeatLimit)> ReadDefaultPlanAsync(
         NpgsqlConnection connection, CancellationToken cancellationToken)
     {

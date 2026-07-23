@@ -106,6 +106,7 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
         {
             role.Property(r => r.Key).HasMaxLength(64);
             role.Property(r => r.AssignableAt).HasMaxLength(16);
+            role.Property(r => r.TemplateKey).HasMaxLength(64);
             // A key is unique within its owning scope: the tenant for a
             // tenant-owned role (workspace_id null), the workspace for a
             // workspace-local one. workspace_id is always null this increment;
@@ -115,6 +116,18 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
             role.HasIndex(r => new { r.TenantId, r.WorkspaceId, r.Key })
                 .IsUnique()
                 .AreNullsDistinct(false);
+            // The role-template idempotency backstop
+            // (role-templates-and-policy-defaults.md section 2): a PARTIAL unique
+            // index on (tenant_id, template_key) covering only the seeded rows
+            // (template_key IS NOT NULL). A tenant-authored role has template_key
+            // null and never contends here, while a concurrent bulk-seed and a
+            // concurrent provision cannot double-seed the same template into a
+            // tenant. The app-level "skip if already seeded" pre-check is the
+            // friendly path; this index is the race guard.
+            role.HasIndex(r => new { r.TenantId, r.TemplateKey })
+                .IsUnique()
+                .HasFilter("template_key is not null")
+                .HasDatabaseName("ux_roles_tenant_template_key");
             ApplyTenantFilter(role);
         });
 

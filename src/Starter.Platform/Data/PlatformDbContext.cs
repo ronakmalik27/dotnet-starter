@@ -149,6 +149,25 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.Property(e => e.Description).HasColumnType("text");
         });
 
+        modelBuilder.Entity<RoleTemplateRow>(entity =>
+        {
+            // The operator-owned role-template catalogue
+            // (role-templates-and-policy-defaults.md section 2). No RLS (a global
+            // platform table, like plans / platform_admins / feature_flags), so NO
+            // ApplyTenantFilter: the super-admin path edits it on the bypass source
+            // and the provisioner reads it on the bypass source to seed a new tenant.
+            // pk is the template key (stamped onto a seeded role's template_key).
+            // permissions / assignable_scopes are NOT-NULL text[] (an EXACT set, not
+            // the plan catalogue's NULL-means-unrestricted arrays).
+            entity.ToTable("role_templates");
+            entity.HasKey(e => e.Key);
+            entity.Property(e => e.Key).ValueGeneratedNever();
+            entity.Property(e => e.Name).HasColumnType("text");
+            entity.Property(e => e.Description).HasColumnType("text");
+            entity.Property(e => e.Permissions).HasColumnType("text[]");
+            entity.Property(e => e.AssignableScopes).HasColumnType("text[]");
+        });
+
         modelBuilder.Entity<FeatureFlagOverrideRow>(entity =>
         {
             // A tenant's own override of a flag (feature-flags.md section 2),
@@ -322,6 +341,9 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
     /// <summary>The operator-owned feature-flag catalogue (no RLS; read by the evaluator, edited on the bypass path).</summary>
     internal DbSet<FeatureFlagRow> FeatureFlags => Set<FeatureFlagRow>();
+
+    /// <summary>The operator-owned role-template catalogue (no RLS; read by the provisioner/seed, edited on the bypass path).</summary>
+    internal DbSet<RoleTemplateRow> RoleTemplates => Set<RoleTemplateRow>();
 
     /// <summary>The tenant's feature-flag overrides (RLS-enforced; set/cleared on the request path, read by the evaluator).</summary>
     internal DbSet<FeatureFlagOverrideRow> FeatureFlagOverrides => Set<FeatureFlagOverrideRow>();

@@ -156,7 +156,15 @@ public sealed class TenantRoleProvisioner
                 // (the super-admin path) creates or edits flags. The overrides table
                 // stays normal request-role DML (a tenant admin writes its own,
                 // RLS-scoped). Idempotent (REVOKE of an absent grant is a no-op).
-                + $"revoke insert, update, delete on platform.feature_flags from {RequestRole};",
+                + $"revoke insert, update, delete on platform.feature_flags from {RequestRole};"
+                // The role-template catalogue is operator-managed the same way
+                // (role-templates-and-policy-defaults.md section 2): the request role
+                // may only READ it (the provisioner reads it on the bypass source, so
+                // the request role never even needs to), never write it. Only the
+                // bypass role (the super-admin path) creates or edits templates, so a
+                // tenant can never edit the operator catalogue. Idempotent (REVOKE of
+                // an absent grant is a no-op).
+                + $"revoke insert, update, delete on platform.role_templates from {RequestRole};",
                 cancellationToken);
         }
     }

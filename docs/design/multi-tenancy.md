@@ -741,8 +741,12 @@ rewrite:
   quota, distinct from the edge rate limiter). DESIGNED and being built out - see
   [quotas.md](quotas.md).
 - **Global role templates and platform policy defaults**: the super-admin plane
-  authors role templates seeded into every tenant, plus platform-wide defaults
-  (password, session, and lockout policy) a tenant inherits and may tighten.
+  authors role templates seeded into every tenant as custom roles, plus platform-wide
+  password / session / lockout defaults enforced install-wide, with per-tenant
+  tightening for session (the per-tenant token) and documented for the rest (the
+  global-user model bounds where password/lockout tightening is coherent). DESIGNED
+  and being built out - see
+  [role-templates-and-policy-defaults.md](role-templates-and-policy-defaults.md).
 - **A policy engine (ABAC)**: conditional grants (time, IP, resource attributes)
   through an engine such as Cedar or Open Policy Agent, evaluated at the same
   per-request permission check (section 13). RBAC stays the default; ABAC layers

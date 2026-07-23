@@ -147,6 +147,39 @@ internal sealed class TenancyApi(
         platform.UpdateFeatureFlagAsync(
             actorUserId, key, description, defaultEnabled, rolloutPercentage, tenantOverridable, archived, cancellationToken);
 
+    public Task<IReadOnlyList<(string Key, string Name, string Description, IReadOnlyList<string> Permissions, IReadOnlyList<string> AssignableScopes, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListRoleTemplatesAsync(CancellationToken cancellationToken) =>
+        platform.ListRoleTemplatesAsync(cancellationToken);
+
+    public Task<Result> CreateRoleTemplateAsync(
+        Guid actorUserId,
+        string key,
+        string name,
+        string description,
+        IReadOnlyList<string> permissions,
+        IReadOnlyList<string> assignableScopes,
+        CancellationToken cancellationToken) =>
+        platform.CreateRoleTemplateAsync(
+            actorUserId, key, name, description, permissions, assignableScopes, cancellationToken);
+
+    public Task<Result> UpdateRoleTemplateAsync(
+        Guid actorUserId,
+        string key,
+        string? name,
+        string? description,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyList<string>? assignableScopes,
+        CancellationToken cancellationToken) =>
+        platform.UpdateRoleTemplateAsync(
+            actorUserId, key, name, description, permissions, assignableScopes, cancellationToken);
+
+    public Task<Result> DeleteRoleTemplateAsync(Guid actorUserId, string key, CancellationToken cancellationToken) =>
+        platform.DeleteRoleTemplateAsync(actorUserId, key, cancellationToken);
+
+    public Task<Result<int>> SeedRoleTemplateAsync(
+        Guid actorUserId, string key, Guid? tenantId, CancellationToken cancellationToken) =>
+        platform.SeedRoleTemplateAsync(actorUserId, key, tenantId, cancellationToken);
+
     public Task<TenantRole?> GetCallerRoleAsync(Guid userId, CancellationToken cancellationToken) =>
         roles.GetCallerRoleAsync(userId, cancellationToken);
 

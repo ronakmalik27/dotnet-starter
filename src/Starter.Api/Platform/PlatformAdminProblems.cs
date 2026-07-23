@@ -31,6 +31,8 @@ internal static class PlatformAdminProblems
             http, ProblemTypes.PlatformPlanKeyTaken, "That plan key is already taken.", error.Message),
         "platform.plan_default_conflict" => Conflict(
             http, ProblemTypes.PlatformPlanDefaultConflict, "Another plan is already the default.", error.Message),
+        "platform.role_template_key_taken" => Conflict(
+            http, ProblemTypes.PlatformRoleTemplateKeyTaken, "That role template key is already taken.", error.Message),
         _ => error.ToProblemResult(http),
     };
 

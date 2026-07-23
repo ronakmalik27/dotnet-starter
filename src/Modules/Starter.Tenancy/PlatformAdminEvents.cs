@@ -139,6 +139,68 @@ internal static class PlatformAdminEvents
         };
 
     /// <summary>
+    /// platform.role_template.created: a super-admin created a role-template
+    /// catalogue entry (role-templates-and-policy-defaults.md sections 2, 6). A
+    /// null-tenant operator action, audited SYNCHRONOUSLY through the platform audit
+    /// writer in the same transaction as the catalogue write - never by the async
+    /// tenant projection. The template has no Guid identity (its key is the pk), so
+    /// the entity id is empty and the key rides the payload (a scalar, no PII).
+    /// </summary>
+    public static DomainEventRecord RoleTemplateCreated(
+        string templateKey,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.role_template.created",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { templateKey }, Json),
+        };
+
+    /// <summary>
+    /// platform.role_template.updated: a super-admin edited a role-template
+    /// catalogue entry (name, description, permissions, or assignable scopes). Same
+    /// null-tenant, synchronously audited shape as <see cref="RoleTemplateCreated"/>.
+    /// Editing a template does NOT retro-change already-seeded tenant copies.
+    /// </summary>
+    public static DomainEventRecord RoleTemplateUpdated(
+        string templateKey,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.role_template.updated",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { templateKey }, Json),
+        };
+
+    /// <summary>
+    /// platform.role_template.deleted: a super-admin deleted a role-template
+    /// catalogue entry. Same null-tenant, synchronously audited shape as
+    /// <see cref="RoleTemplateCreated"/>. Already-seeded tenant copies are the
+    /// tenants' own roles and are untouched.
+    /// </summary>
+    public static DomainEventRecord RoleTemplateDeleted(
+        string templateKey,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.role_template.deleted",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { templateKey }, Json),
+        };
+
+    /// <summary>
     /// platform.tenant.erased: a super-admin hard-deleted (erased) a tenant, purging
     /// its rows (data-export-and-erasure.md sections 5, 6, GDPR Art. 17). Written
     /// SYNCHRONOUSLY to platform.platform_audit_log in the SAME bypass transaction as

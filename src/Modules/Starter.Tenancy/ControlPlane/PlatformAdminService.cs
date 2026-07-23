@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 using Starter.Tenancy.Domain;
+using Starter.Tenancy.Rbac;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
 using Starter.Platform.Dsar;
@@ -36,6 +37,7 @@ internal sealed class PlatformAdminService(
     OutboxWriter outbox,
     IPlatformAuditWriter auditWriter,
     IUserDirectory users,
+    CustomRoleService customRoles,
     Clock clock,
     IOptions<PlatformAdminOptions> options,
     ITenantErasureService erasure,
@@ -46,6 +48,9 @@ internal sealed class PlatformAdminService(
 
     private static readonly Error TenantNotFound = new(
         ErrorKind.NotFound, "platform.tenant_not_found", "No such tenant.");
+
+    private static readonly Error RoleTemplateNotFound = new(
+        ErrorKind.NotFound, "platform.role_template_not_found", "No such role template.");
 
     private static readonly Error TargetUserNotFound = new(
         ErrorKind.NotFound, "platform.user_not_found", "No such active user.");
@@ -686,6 +691,295 @@ internal sealed class PlatformAdminService(
         return Result.Success();
     }
 
+    // --- Role templates (operator catalogue on platform.role_templates, bypass-path) -
+    // The role-template catalogue is a no-RLS platform table
+    // (role-templates-and-policy-defaults.md section 2), the plan-CRUD pattern: raw
+    // SQL on the bypass connection, audited SYNCHRONOUSLY through the platform audit
+    // writer in the same transaction as the catalogue write. permissions and
+    // assignable_scopes are NOT-NULL text[] (an exact set), validated on write:
+    // every permission is a real catalogue atom, none is owner-reserved, and every
+    // scope is one of {tenant, workspace}.
+
+    public async Task<IReadOnlyList<(string Key, string Name, string Description, IReadOnlyList<string> Permissions, IReadOnlyList<string> AssignableScopes, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)>>
+        ListRoleTemplatesAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select key, name, description, permissions, assignable_scopes, created_at, updated_at "
+            + "from platform.role_templates order by created_at, key",
+            connection);
+
+        var templates =
+            new List<(string, string, string, IReadOnlyList<string>, IReadOnlyList<string>, DateTimeOffset, DateTimeOffset)>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            templates.Add((
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetFieldValue<string[]>(3),
+                reader.GetFieldValue<string[]>(4),
+                reader.GetFieldValue<DateTimeOffset>(5),
+                reader.GetFieldValue<DateTimeOffset>(6)));
+        }
+
+        return templates;
+    }
+
+    public async Task<Result> CreateRoleTemplateAsync(
+        Guid actorUserId,
+        string key,
+        string name,
+        string description,
+        IReadOnlyList<string> permissions,
+        IReadOnlyList<string> assignableScopes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(description);
+        ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(assignableScopes);
+
+        key = key.Trim();
+        name = name.Trim();
+        description = description.Trim();
+        var normalizedPermissions = NormalizeList(permissions);
+        var normalizedScopes = NormalizeList(assignableScopes);
+
+        if (ValidateRoleTemplateShape(key, name, normalizedPermissions, normalizedScopes) is { } validation)
+        {
+            return Result.Failure(validation);
+        }
+
+        var now = clock.UtcNow;
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        try
+        {
+            await using var insert = new NpgsqlCommand(
+                "insert into platform.role_templates "
+                + "(key, name, description, permissions, assignable_scopes, created_at, updated_at) "
+                + "values (@key, @name, @description, @permissions, @scopes, @now, @now)",
+                connection,
+                dbTransaction);
+            insert.Parameters.AddWithValue("key", key);
+            insert.Parameters.AddWithValue("name", name);
+            insert.Parameters.AddWithValue("description", description);
+            AddArrayParameter(insert, "permissions", normalizedPermissions);
+            AddArrayParameter(insert, "scopes", normalizedScopes);
+            insert.Parameters.AddWithValue("now", now);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Result.Failure(RoleTemplateKeyTaken);
+        }
+
+        var created = PlatformAdminEvents.RoleTemplateCreated(key, actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, created, subjectUserId: null, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    public async Task<Result> UpdateRoleTemplateAsync(
+        Guid actorUserId,
+        string key,
+        string? name,
+        string? description,
+        IReadOnlyList<string>? permissions,
+        IReadOnlyList<string>? assignableScopes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key = key.Trim();
+        name = name?.Trim();
+        description = description?.Trim();
+
+        if (name is { Length: 0 })
+        {
+            return Result.Failure(new Error(
+                ErrorKind.Validation, "platform.role_template_name_required", "A role template name cannot be empty."));
+        }
+
+        // Validate only the facets the caller actually sent (a null leaves that
+        // facet unchanged; a supplied array replaces).
+        var normalizedPermissions = permissions is null ? null : NormalizeList(permissions);
+        if (normalizedPermissions is not null && ValidatePermissionSet(normalizedPermissions) is { } permissionError)
+        {
+            return Result.Failure(permissionError);
+        }
+
+        var normalizedScopes = assignableScopes is null ? null : NormalizeList(assignableScopes);
+        if (normalizedScopes is not null && ValidateScopeSet(normalizedScopes) is { } scopeError)
+        {
+            return Result.Failure(scopeError);
+        }
+
+        var now = clock.UtcNow;
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        // Lock the row (FOR UPDATE) and rewrite it whole, so a null argument means
+        // "unchanged" rather than "set null" - the PATCH tri-state, the plan-CRUD
+        // pattern.
+        var existing = await ReadRoleTemplateForUpdateAsync(connection, dbTransaction, key, cancellationToken);
+        if (existing is null)
+        {
+            return Result.Failure(RoleTemplateNotFound);
+        }
+
+        await using var update = new NpgsqlCommand(
+            "update platform.role_templates set "
+            + "name = @name, description = @description, permissions = @permissions, "
+            + "assignable_scopes = @scopes, updated_at = @now where key = @key",
+            connection,
+            dbTransaction);
+        update.Parameters.AddWithValue("key", key);
+        update.Parameters.AddWithValue("name", name ?? existing.Value.Name);
+        update.Parameters.AddWithValue("description", description ?? existing.Value.Description);
+        AddArrayParameter(update, "permissions", normalizedPermissions ?? (IReadOnlyList<string>)existing.Value.Permissions);
+        AddArrayParameter(update, "scopes", normalizedScopes ?? (IReadOnlyList<string>)existing.Value.AssignableScopes);
+        update.Parameters.AddWithValue("now", now);
+        await update.ExecuteNonQueryAsync(cancellationToken);
+
+        var updated = PlatformAdminEvents.RoleTemplateUpdated(key, actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, updated, subjectUserId: null, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    public async Task<Result> DeleteRoleTemplateAsync(
+        Guid actorUserId, string key, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key = key.Trim();
+
+        var now = clock.UtcNow;
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        await using var delete = new NpgsqlCommand(
+            "delete from platform.role_templates where key = @key", connection, dbTransaction);
+        delete.Parameters.AddWithValue("key", key);
+        var deleted = await delete.ExecuteNonQueryAsync(cancellationToken);
+        if (deleted == 0)
+        {
+            return Result.Failure(RoleTemplateNotFound);
+        }
+
+        // Only the committing branch (a real delete) emits the event and writes the
+        // audit row, so there is never an audit row without an action. Already-seeded
+        // tenant copies are the tenants' own roles and are untouched.
+        var record = PlatformAdminEvents.RoleTemplateDeleted(key, actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, record, subjectUserId: null, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Seeds one role template into every tenant (or a single named tenant) as an
+    /// ordinary tenant custom role (role-templates-and-policy-defaults.md section 2),
+    /// idempotently via the template_key guard: a tenant already carrying the
+    /// template is skipped. Each per-tenant write is a bypass transaction bound to
+    /// that tenant, going through the same transaction-agnostic custom-role helper
+    /// the provisioner uses, so permissions are filtered to that tenant's
+    /// plan-allowed subset. Returns the number of tenants newly seeded. A missing
+    /// template is a NotFound; a named tenant that does not exist is a NotFound.
+    /// </summary>
+    public async Task<Result<int>> SeedRoleTemplateAsync(
+        Guid actorUserId, string key, Guid? tenantId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key = key.Trim();
+
+        await using var readConnection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+
+        var template = await ReadRoleTemplateForSeedAsync(readConnection, key, cancellationToken);
+        if (template is null)
+        {
+            return Result.Failure<int>(RoleTemplateNotFound);
+        }
+
+        IReadOnlyList<Guid> targets;
+        if (tenantId is Guid named)
+        {
+            if (!await TenantExistsAsync(readConnection, named, cancellationToken))
+            {
+                return Result.Failure<int>(TenantNotFound);
+            }
+
+            targets = [named];
+        }
+        else
+        {
+            targets = await ReadAllTenantIdsAsync(readConnection, cancellationToken);
+        }
+
+        var assignableAt = RoleAssignableAt.FromScopes(template.AssignableScopes);
+        var now = clock.UtcNow;
+        var seeded = 0;
+
+        foreach (var target in targets)
+        {
+            // A fresh bypass connection + tenant-bound context + transaction per
+            // tenant (explicit tenant context, the AssignPlanAsync per-tenant shape).
+            await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+            await using var db = OpenContext(connection, ITenantContext.ForTenant(target));
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            // The friendly idempotency path: skip a tenant already carrying this
+            // template (the partial unique index is the race backstop).
+            var alreadySeeded = await db.Roles
+                .AsNoTracking()
+                .AnyAsync(role => role.TemplateKey == key, cancellationToken);
+            if (alreadySeeded)
+            {
+                continue;
+            }
+
+            var result = await customRoles.InsertRoleOnOpenTransactionAsync(
+                db,
+                target,
+                actorUserId,
+                template.Key,
+                template.Name,
+                template.Description,
+                assignableAt,
+                workspaceId: null,
+                templateKey: template.Key,
+                template.Permissions,
+                skipDisallowedByPlan: true,
+                now,
+                cancellationToken);
+            if (result.IsFailure)
+            {
+                // A concurrent seed won the race, or a tenant-authored role already
+                // uses the template's key: a benign per-tenant skip, not a bulk
+                // failure. Any other error rolls this tenant back and surfaces.
+                if (result.Error.Code == "tenancy.role_key_taken")
+                {
+                    continue;
+                }
+
+                return Result.Failure<int>(result.Error);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            seeded++;
+        }
+
+        return Result.Success(seeded);
+    }
+
     // --- Platform admins (bypass-path roster on platform.platform_admins) --
 
     public async Task<IReadOnlyList<(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt)>>
@@ -1009,6 +1303,154 @@ internal sealed class PlatformAdminService(
         command.Parameters.AddWithValue("id", tenantId);
         return await command.ExecuteScalarAsync(cancellationToken) is not null;
     }
+
+    private static async Task<IReadOnlyList<Guid>> ReadAllTenantIdsAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select id from tenancy.tenants order by created_at, id", connection);
+        var ids = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            ids.Add(reader.GetGuid(0));
+        }
+
+        return ids;
+    }
+
+    // --- Role-template helpers --------------------------------------------
+
+    private static readonly Error RoleTemplateKeyTaken = new(
+        ErrorKind.Conflict, "platform.role_template_key_taken", "A role template with that key already exists.");
+
+    private static List<string> NormalizeList(IReadOnlyList<string> values) =>
+        values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    private static Error? ValidateRoleTemplateShape(
+        string key, string name, IReadOnlyList<string> permissions, IReadOnlyList<string> assignableScopes)
+    {
+        if (key.Length == 0 || key.Length > 64)
+        {
+            return new Error(
+                ErrorKind.Validation, "platform.role_template_key_invalid", "A role template key must be 1-64 characters.");
+        }
+
+        if (name.Length == 0)
+        {
+            return new Error(
+                ErrorKind.Validation, "platform.role_template_name_required", "A role template name is required.");
+        }
+
+        return ValidatePermissionSet(permissions) ?? ValidateScopeSet(assignableScopes);
+    }
+
+    // Every permission must be a real catalogue atom and none owner-reserved: the
+    // same structural block a tenant custom role carries, so a template can never
+    // seed a permission a tenant could not have authored (section 2).
+    private static Error? ValidatePermissionSet(IReadOnlyList<string> permissions)
+    {
+        foreach (var permission in permissions)
+        {
+            if (!Permissions.IsKnown(permission))
+            {
+                return new Error(
+                    ErrorKind.Validation,
+                    "platform.role_template_permission_unknown",
+                    $"'{permission}' is not a known permission.");
+            }
+
+            if (Permissions.IsOwnerReserved(permission))
+            {
+                return new Error(
+                    ErrorKind.Validation,
+                    "platform.role_template_permission_reserved",
+                    $"'{permission}' is owner-reserved and cannot be templated into a tenant role.");
+            }
+        }
+
+        return null;
+    }
+
+    private static Error? ValidateScopeSet(IReadOnlyList<string> assignableScopes)
+    {
+        if (assignableScopes.Count == 0)
+        {
+            return new Error(
+                ErrorKind.Validation,
+                "platform.role_template_scope_required",
+                "At least one assignable scope (tenant or workspace) is required.");
+        }
+
+        foreach (var scope in assignableScopes)
+        {
+            if (scope is not (AssignmentScope.Tenant or AssignmentScope.Workspace))
+            {
+                return new Error(
+                    ErrorKind.Validation,
+                    "platform.role_template_scope_invalid",
+                    $"'{scope}' is not a valid assignable scope (tenant or workspace).");
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<RoleTemplateRowValues?> ReadRoleTemplateForUpdateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select name, description, permissions, assignable_scopes from platform.role_templates "
+            + "where key = @key for update",
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("key", key);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new RoleTemplateRowValues(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetFieldValue<string[]>(2),
+            reader.GetFieldValue<string[]>(3));
+    }
+
+    private static async Task<RoleTemplateSeed?> ReadRoleTemplateForSeedAsync(
+        NpgsqlConnection connection, string key, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select key, name, description, permissions, assignable_scopes from platform.role_templates "
+            + "where key = @key limit 1",
+            connection);
+        command.Parameters.AddWithValue("key", key);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new RoleTemplateSeed(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetFieldValue<string[]>(3),
+            reader.GetFieldValue<string[]>(4));
+    }
+
+    private readonly record struct RoleTemplateRowValues(
+        string Name, string Description, string[] Permissions, string[] AssignableScopes);
 
     // Reads the tenant's status and deleted_at under a row lock (FOR UPDATE) on the
     // bypass connection, so a concurrent reactivate cannot race the erase between the

@@ -86,17 +86,6 @@ internal sealed class CustomRoleService(
         var now = clock.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        // The plan permission-catalogue gate (billing-and-entitlements.md section
-        // 4a): each requested permission must be grantable under the tenant's plan.
-        // Fail-open - the default NULL-permissions plan allows every non-owner-
-        // reserved permission, so existing custom-role authoring is unaffected; a
-        // plan an operator publishes with an explicit list bites. Checked inside the
-        // transaction so the RLS GUC is set for the tenant-plan read.
-        if (await ValidatePlanPermissionsAsync(distinctPermissions, cancellationToken) is { } planError)
-        {
-            return Result.Failure<Guid>(planError);
-        }
-
         // A workspace-local role must name a workspace that exists in this tenant
         // (RLS-scoped read). The endpoint's RequireWorkspace gate already checked
         // this; the service re-checks so the business rule holds for any caller.
@@ -122,41 +111,140 @@ internal sealed class CustomRoleService(
             return Result.Failure<Guid>(RoleKeyTaken);
         }
 
+        // The plan permission-catalogue gate, the role + role_permissions insert,
+        // and the RoleCreated event run through the transaction-agnostic helper on
+        // this open transaction. The endpoint path REJECTS a permission the plan
+        // omits (skipDisallowedByPlan: false); a tenant-authored role carries no
+        // template (templateKey: null).
+        var result = await InsertRoleOnOpenTransactionAsync(
+            db,
+            tenant.TenantId,
+            callerUserId,
+            key,
+            name,
+            description,
+            assignableAt,
+            workspaceId,
+            templateKey: null,
+            distinctPermissions,
+            skipDisallowedByPlan: false,
+            now,
+            cancellationToken);
+        if (result.IsFailure)
+        {
+            // Dispose (below) rolls back; nothing was committed.
+            return result;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    /// <summary>
+    /// The role + role_permissions insert plus the RoleCreated event, run inside an
+    /// ALREADY-OPEN transaction on the supplied context (so the tenant interceptor's
+    /// RLS GUC is set): it applies the plan permission-catalogue gate
+    /// (billing-and-entitlements.md section 4a), inserts the role row and its
+    /// permissions, and enqueues the granted event, but never opens or commits a
+    /// transaction - the caller owns that. TRANSACTION-AGNOSTIC by design
+    /// (role-templates-and-policy-defaults.md section 2): the endpoint-facing
+    /// <see cref="CreateRoleAsync"/> wraps it in its own transaction on the
+    /// request-scoped context, while the provisioner's seeding path and the
+    /// super-admin bulk-seed call it directly on their own open bypass transaction,
+    /// so <c>CreateRoleAsync</c> is never re-entered (it would begin a second
+    /// transaction and throw). Because both seeding callers operate on a bypass
+    /// connection, the context is passed in rather than the injected one; the plan
+    /// read binds to the context's own tenant filter.
+    /// <para>
+    /// <paramref name="skipDisallowedByPlan"/> selects the two plan behaviors: the
+    /// endpoint path passes <c>false</c> and REJECTS a permission the plan does not
+    /// grant (<c>tenancy.permission_not_in_plan</c>); the seeding path passes
+    /// <c>true</c> and SKIPS a disallowed permission (the seeded role gets the
+    /// plan-allowed subset, never a permission-escalation past the plan). An empty
+    /// resulting set still creates the role.
+    /// </para>
+    /// </summary>
+    internal async Task<Result<Guid>> InsertRoleOnOpenTransactionAsync(
+        TenancyDbContext context,
+        Guid tenantId,
+        Guid callerUserId,
+        string key,
+        string name,
+        string? description,
+        string assignableAt,
+        Guid? workspaceId,
+        string? templateKey,
+        IReadOnlyCollection<string> distinctPermissions,
+        bool skipDisallowedByPlan,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        // Resolve the tenant's plan and apply the catalogue gate. Fail-open: the
+        // default NULL-permissions plan (or an unknown / null plan) allows every
+        // non-owner-reserved permission, so an unrestricted plan seeds the full set
+        // and existing custom-role authoring is unaffected. Skipped when the set is
+        // empty (no plan read needed).
+        var effective = new List<string>(distinctPermissions);
+        if (effective.Count > 0)
+        {
+            var resolved = await ResolveTenantPlanAsync(context, cancellationToken);
+            if (skipDisallowedByPlan)
+            {
+                effective = effective.Where(resolved.AllowsPermission).ToList();
+            }
+            else
+            {
+                foreach (var permission in effective)
+                {
+                    if (!resolved.AllowsPermission(permission))
+                    {
+                        return Result.Failure<Guid>(new Error(
+                            ErrorKind.Validation,
+                            "tenancy.permission_not_in_plan",
+                            $"'{permission}' is not included in this tenant's plan."));
+                    }
+                }
+            }
+        }
+
         var roleRow = new CustomRole
         {
             Id = Ids.NewId(now),
-            TenantId = tenant.TenantId,
+            TenantId = tenantId,
             Key = key,
             Name = name,
             Description = description,
             AssignableAt = assignableAt,
             WorkspaceId = workspaceId,
+            TemplateKey = templateKey,
             CreatedBy = callerUserId,
             CreatedAt = now,
         };
-        db.Roles.Add(roleRow);
-        foreach (var permission in distinctPermissions)
+        context.Roles.Add(roleRow);
+        foreach (var permission in effective)
         {
-            db.RolePermissions.Add(new RolePermission
+            context.RolePermissions.Add(new RolePermission
             {
                 RoleId = roleRow.Id,
-                TenantId = tenant.TenantId,
+                TenantId = tenantId,
                 Permission = permission,
             });
         }
 
         try
         {
-            await db.SaveChangesAsync(cancellationToken);
+            await context.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
+            // The (tenant, workspace_id, key) index or the (tenant, template_key)
+            // seeding backstop fired: to the endpoint caller a key clash, to the
+            // seeding caller "already seeded" (it treats this as a benign skip).
             return Result.Failure<Guid>(RoleKeyTaken);
         }
 
         await outbox.EnqueueAsync(
-            db, TenancyEvents.RoleCreated(roleRow.Id, key, callerUserId, now), cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+            context, TenancyEvents.RoleCreated(roleRow.Id, key, callerUserId, now), cancellationToken);
 
         return Result.Success(roleRow.Id);
     }
@@ -727,11 +815,7 @@ internal sealed class CustomRoleService(
             return null;
         }
 
-        var planKey = await db.Tenants
-            .AsNoTracking()
-            .Select(t => t.Plan)
-            .SingleOrDefaultAsync(cancellationToken);
-        var resolved = await entitlements.ResolveAsync(planKey, cancellationToken);
+        var resolved = await ResolveTenantPlanAsync(db, cancellationToken);
         foreach (var permission in permissions)
         {
             if (!resolved.AllowsPermission(permission))
@@ -744,6 +828,23 @@ internal sealed class CustomRoleService(
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the active tenant's commercial entitlements from the plan key on the
+    /// supplied context's tenant row plus <see cref="IEntitlementSource"/>, exactly
+    /// as <c>GetCallerEntitlementsAsync</c> does. MUST run inside the caller's open
+    /// transaction so the RLS GUC is set for the tenant-plan read; the context is a
+    /// parameter so the seeding path can resolve on its own bypass context.
+    /// </summary>
+    private async Task<Entitlements> ResolveTenantPlanAsync(
+        TenancyDbContext context, CancellationToken cancellationToken)
+    {
+        var planKey = await context.Tenants
+            .AsNoTracking()
+            .Select(t => t.Plan)
+            .SingleOrDefaultAsync(cancellationToken);
+        return await entitlements.ResolveAsync(planKey, cancellationToken);
     }
 
     private static Error? ValidatePermissions(IReadOnlyCollection<string> permissions)

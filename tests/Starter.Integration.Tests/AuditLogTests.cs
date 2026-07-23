@@ -49,6 +49,14 @@ public sealed class AuditLogTests(StarterAppFixture fixture)
         // deliverable catalogue, so they are audited by the async projection.
         "platform.feature_flag.created",
         "platform.feature_flag.updated",
+        // Role-template catalogue edits are the same shape
+        // (role-templates-and-policy-defaults.md section 6): null-tenant operator
+        // actions audited synchronously on the platform log, not by the async tenant
+        // projection. Seeding a template into a tenant creates ordinary custom-role
+        // rows, so the existing tenancy.role.created event covers the tenant side.
+        "platform.role_template.created",
+        "platform.role_template.updated",
+        "platform.role_template.deleted",
         // A tenant hard-delete (erasure) is recorded synchronously on
         // platform.platform_audit_log in the same bypass transaction as the purge
         // (data-export-and-erasure.md sections 5, 6), never by the async tenant
