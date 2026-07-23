@@ -26,6 +26,7 @@ internal sealed class TenantAdminService(
     ITenantContext tenant,
     OutboxWriter outbox,
     IEntitlementSource entitlements,
+    IPolicyDefaults policyDefaults,
     Clock clock,
     InvitationEmailComposer invitationEmail,
     IUserDirectory users,
@@ -310,14 +311,15 @@ internal sealed class TenantAdminService(
         Guid callerUserId,
         string? name,
         string? slug,
+        int? sessionMaxSeconds,
         CancellationToken cancellationToken)
     {
         name = name?.Trim();
         slug = slug?.Trim();
-        if (string.IsNullOrEmpty(name) && string.IsNullOrEmpty(slug))
+        if (string.IsNullOrEmpty(name) && string.IsNullOrEmpty(slug) && sessionMaxSeconds is null)
         {
             return Result.Failure(new Error(
-                ErrorKind.Validation, "tenancy.no_settings", "Provide a name and/or a slug to update."));
+                ErrorKind.Validation, "tenancy.no_settings", "Provide a name, a slug, and/or a session lifetime to update."));
         }
 
         if (name is not null && name.Length == 0)
@@ -332,6 +334,32 @@ internal sealed class TenantAdminService(
                 ErrorKind.Validation,
                 "tenancy.slug_invalid",
                 "A tenant slug must be 1-63 characters of letters, digits, and hyphens."));
+        }
+
+        // The session-lifetime override may only TIGHTEN
+        // (role-templates-and-policy-defaults.md section 5): a positive value no
+        // longer than the platform access-token lifetime. A longer value is rejected
+        // (a shorter token lifetime is tighter/safer); the effective tid lifetime is
+        // min(platform default, override), enforced at the mint. This is the one
+        // coherent tenant override in the global-user model.
+        if (sessionMaxSeconds is int requestedSession)
+        {
+            if (requestedSession < 1)
+            {
+                return Result.Failure(new Error(
+                    ErrorKind.Validation,
+                    "tenancy.session_invalid",
+                    "A session lifetime must be a positive number of seconds."));
+            }
+
+            var platformMax = (await policyDefaults.GetAsync(cancellationToken)).AccessTokenLifetimeSeconds;
+            if (requestedSession > platformMax)
+            {
+                return Result.Failure(new Error(
+                    ErrorKind.Validation,
+                    "tenancy.session_longer_than_platform",
+                    $"A tenant session lifetime may not exceed the platform maximum of {platformMax} seconds."));
+            }
         }
 
         var now = clock.UtcNow;
@@ -352,6 +380,11 @@ internal sealed class TenantAdminService(
         if (!string.IsNullOrEmpty(slug))
         {
             tenantRow.Slug = slug;
+        }
+
+        if (sessionMaxSeconds is int seconds)
+        {
+            tenantRow.SessionMaxSeconds = seconds;
         }
 
         try

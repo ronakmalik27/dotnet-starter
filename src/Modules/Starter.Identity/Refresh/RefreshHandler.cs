@@ -19,6 +19,7 @@ namespace Starter.Identity.Refresh;
 internal sealed class RefreshHandler(
     IdentityDbContext db,
     AccessTokenIssuer accessTokens,
+    ITenantSessionPolicyReader sessionPolicy,
     OutboxWriter outbox,
     Clock clock)
 {
@@ -125,12 +126,22 @@ internal sealed class RefreshHandler(
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        var accessToken = accessTokens.Issue(user.Id, rotated.Id, user.TokenVersion, now, rotated.TenantId);
+        // Re-resolve the CURRENT tenant session-lifetime override per rotation
+        // (role-templates-and-policy-defaults.md section 5): a tenant that tightens
+        // its session AFTER a token was issued sees the shorter lifetime on the very
+        // next refresh, never a value captured stale at select-tenant time. The port
+        // read runs only when the refresh actually carries a tid (the added cost is
+        // the price of the override being live); a tenant-less refresh skips it.
+        int? sessionMaxSeconds = rotated.TenantId is Guid rotatedTenant
+            ? await sessionPolicy.GetSessionMaxSecondsAsync(rotatedTenant, cancellationToken)
+            : null;
+        var accessToken = await accessTokens.IssueAsync(
+            user.Id, rotated.Id, user.TokenVersion, now, rotated.TenantId, sessionMaxSeconds, cancellationToken);
         return new IssuedTokens(
             user.Id,
             rotated.Id,
-            accessToken,
-            (int)StarterAuth.AccessTokenLifetime.TotalSeconds,
+            accessToken.Token,
+            accessToken.ExpiresInSeconds,
             newToken,
             rotated.ExpiresAt);
     }

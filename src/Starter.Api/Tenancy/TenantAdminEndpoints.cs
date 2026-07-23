@@ -234,7 +234,7 @@ public static class TenantAdminEndpoints
         }
 
         var result = await tenancy.UpdateSettingsAsync(
-            callerId.Value, request.Name, request.Slug, cancellationToken);
+            callerId.Value, request.Name, request.Slug, request.SessionMaxSeconds, cancellationToken);
         return result.Match(
             () => Results.NoContent(),
             error => TenancyProblems.From(http, error));
@@ -303,8 +303,13 @@ public sealed record ChangeRoleRequest(string? Role);
 /// </summary>
 public sealed record InviteRequest(string? Email, string? Role, Guid? WorkspaceId, Guid? RoleId);
 
-/// <summary>PATCH /api/v1/tenant body: name and/or slug.</summary>
-public sealed record UpdateSettingsRequest(string? Name, string? Slug);
+/// <summary>
+/// PATCH /api/v1/tenant body: name, slug, and/or session-lifetime override.
+/// <paramref name="SessionMaxSeconds"/> (role-templates-and-policy-defaults.md
+/// section 5) tightens the tid-token lifetime; it must be positive and no longer
+/// than the platform access-token lifetime. Null leaves the current value unchanged.
+/// </summary>
+public sealed record UpdateSettingsRequest(string? Name, string? Slug, int? SessionMaxSeconds);
 
 /// <summary>POST /api/v1/tenant/transfer-ownership body.</summary>
 public sealed record TransferOwnershipRequest(Guid UserId);

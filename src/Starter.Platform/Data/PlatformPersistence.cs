@@ -43,6 +43,15 @@ public static class PlatformPersistence
         // bypass data source. Request-scoped like the context it reads.
         services.AddScoped<INotificationService, NotificationService>();
 
+        // The install-wide policy-defaults reader (role-templates-and-policy-defaults.md
+        // section 3): a no-RLS read of the platform.policy_defaults singleton through
+        // the request-role data source, behind a short in-process TTL cache, failing
+        // closed to the built-in constants. A SINGLETON, not request-scoped: the login
+        // hot path reads it under concurrent brute-force traffic, so the cache is
+        // shared process-wide (per-request caching would not help), and the super-admin
+        // write path invalidates it. Reads the normal request data source, never bypass.
+        services.AddSingleton<Auth.IPolicyDefaults, PolicyDefaultsReader>();
+
         // The entitlement source (billing-and-entitlements.md section 3): resolves
         // a plan key to its entitlements by reading the no-RLS platform.plans
         // catalogue through the request-scoped PlatformDbContext. Request-scoped

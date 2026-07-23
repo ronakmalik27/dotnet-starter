@@ -95,6 +95,7 @@ public static class TenancyModule
         services.AddScoped<PlatformAdminDirectory>();
         services.AddScoped<PlatformAdminService>();
         services.AddScoped<ImpersonationGrantReader>();
+        services.AddScoped<TenantSessionPolicyReader>();
 
         // Request-path (RLS-bound) slices.
         services.AddScoped<TenantRoleResolver>();
@@ -148,6 +149,13 @@ public static class TenancyModule
         // reader, so the platform never references this module.
         services.AddScoped<IImpersonationGrantReader>(
             provider => provider.GetRequiredService<ImpersonationGrantReader>());
+
+        // Bridge the platform-declared session-policy port (used by the tid mint in
+        // the Identity module's select-tenant endpoint and refresh handler) to the
+        // bypass-path tenant reader, so Identity never references this module or the
+        // tenancy.tenants table (role-templates-and-policy-defaults.md section 5).
+        services.AddScoped<ITenantSessionPolicyReader>(
+            provider => provider.GetRequiredService<TenantSessionPolicyReader>());
 
         return services;
     }

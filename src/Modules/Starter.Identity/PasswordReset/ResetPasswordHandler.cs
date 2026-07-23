@@ -60,7 +60,7 @@ internal sealed class ResetPasswordHandler(
         // single-use token. The caller supplied both the token and the
         // password, so checking the password first leaks nothing and lets a
         // legitimate user retry with a stronger one on the same link.
-        var policyCheck = policy.Check(newPassword);
+        var policyCheck = await policy.CheckAsync(newPassword, cancellationToken);
         if (policyCheck.IsFailure)
         {
             return policyCheck;

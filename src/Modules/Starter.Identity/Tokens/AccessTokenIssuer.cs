@@ -4,14 +4,28 @@ using Starter.Platform.Auth;
 
 namespace Starter.Identity.Tokens;
 
+/// <summary>A minted access token and the lifetime (seconds) it actually carries.</summary>
+internal readonly record struct MintedAccessToken(string Token, int ExpiresInSeconds);
+
 /// <summary>
-/// Issues the access JWT: ES256, 15-minute expiry, exactly the
-/// sub / sid / ver claims - no roles (roles are scoped per-entity, resolved
-/// per-request) - plus the optional tid claim naming the active tenant. The
-/// verifying half is the platform's StarterJwtAuthentication; both sides share
-/// the StarterAuth constants.
+/// Issues the access JWT: ES256, exactly the sub / sid / ver claims - no roles
+/// (roles are scoped per-entity, resolved per-request) - plus the optional tid
+/// claim naming the active tenant. The verifying half is the platform's
+/// StarterJwtAuthentication; both sides share the StarterAuth constants.
+/// <para>
+/// The access-token LIFETIME is the platform policy default
+/// (role-templates-and-policy-defaults.md section 3), read here from
+/// <see cref="IPolicyDefaults"/> - this is the single mint, so switching it here
+/// makes the whole install honor an operator change without a blanket find/replace
+/// of the <c>StarterAuth.AccessTokenLifetime</c> const (the impersonation grant cap
+/// deliberately keeps that const). A tenant may TIGHTEN the tid-token lifetime
+/// (section 5): <see cref="IssueAsync"/> resolves the effective lifetime as
+/// <c>min(platform default, tenant override)</c> and RETURNS it, so the three
+/// expires_in reporters (session issue, select-tenant, refresh) report exactly the
+/// number the token carries.
+/// </para>
 /// </summary>
-internal sealed class AccessTokenIssuer(ECDsaSecurityKey signingKey)
+internal sealed class AccessTokenIssuer(ECDsaSecurityKey signingKey, IPolicyDefaults policyDefaults)
 {
     private static readonly JsonWebTokenHandler Handler = new();
 
@@ -19,12 +33,32 @@ internal sealed class AccessTokenIssuer(ECDsaSecurityKey signingKey)
         new(signingKey, SecurityAlgorithms.EcdsaSha256);
 
     /// <summary>
-    /// Mints the access token. <paramref name="tenantId"/> adds the tid claim
-    /// when non-null (a tenant-bound session); a tenant-less session (login)
-    /// leaves it out, so tenant resolution falls back to another source.
+    /// Mints the access token and returns it with the lifetime it carries.
+    /// <paramref name="tenantId"/> adds the tid claim when non-null (a tenant-bound
+    /// session); a tenant-less session (login) leaves it out, so tenant resolution
+    /// falls back to another source. <paramref name="tenantSessionMaxSeconds"/> is
+    /// the tenant's session-lifetime override (section 5) when present; the
+    /// effective lifetime is <c>min(platform default, override)</c> - a tenant may
+    /// only tighten. Null override inherits the platform default.
     /// </summary>
-    public string Issue(Guid userId, Guid sessionId, int tokenVersion, DateTimeOffset now, Guid? tenantId = null)
+    public async Task<MintedAccessToken> IssueAsync(
+        Guid userId,
+        Guid sessionId,
+        int tokenVersion,
+        DateTimeOffset now,
+        Guid? tenantId,
+        int? tenantSessionMaxSeconds,
+        CancellationToken cancellationToken)
     {
+        var defaults = await policyDefaults.GetAsync(cancellationToken);
+        var lifetimeSeconds = defaults.AccessTokenLifetimeSeconds;
+        if (tenantSessionMaxSeconds is int tenantMax)
+        {
+            // Tighten only: the effective lifetime is the smaller of the platform
+            // default and the tenant override.
+            lifetimeSeconds = Math.Min(lifetimeSeconds, tenantMax);
+        }
+
         var claims = new Dictionary<string, object>
         {
             [StarterClaims.Sub] = userId.ToString(),
@@ -42,12 +76,12 @@ internal sealed class AccessTokenIssuer(ECDsaSecurityKey signingKey)
             Audience = StarterAuth.Audience,
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,
-            Expires = now.UtcDateTime.Add(StarterAuth.AccessTokenLifetime),
+            Expires = now.UtcDateTime.AddSeconds(lifetimeSeconds),
             SigningCredentials = _credentials,
             Claims = claims,
         };
 
-        return Handler.CreateToken(descriptor);
+        return new MintedAccessToken(Handler.CreateToken(descriptor), lifetimeSeconds);
     }
 
     /// <summary>

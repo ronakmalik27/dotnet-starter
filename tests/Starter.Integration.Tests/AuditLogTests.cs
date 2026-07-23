@@ -57,6 +57,11 @@ public sealed class AuditLogTests(StarterAppFixture fixture)
         "platform.role_template.created",
         "platform.role_template.updated",
         "platform.role_template.deleted",
+        // A policy-defaults edit is the same shape
+        // (role-templates-and-policy-defaults.md sections 3, 6): a null-tenant operator
+        // action audited synchronously on the platform log, not by the async tenant
+        // projection.
+        "platform.policy.updated",
         // A tenant hard-delete (erasure) is recorded synchronously on
         // platform.platform_audit_log in the same bypass transaction as the purge
         // (data-export-and-erasure.md sections 5, 6), never by the async tenant

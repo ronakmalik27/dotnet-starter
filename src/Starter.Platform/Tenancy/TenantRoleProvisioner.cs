@@ -164,7 +164,14 @@ public sealed class TenantRoleProvisioner
                 // bypass role (the super-admin path) creates or edits templates, so a
                 // tenant can never edit the operator catalogue. Idempotent (REVOKE of
                 // an absent grant is a no-op).
-                + $"revoke insert, update, delete on platform.role_templates from {RequestRole};",
+                + $"revoke insert, update, delete on platform.role_templates from {RequestRole};"
+                // The policy-defaults singleton is operator-managed the same way
+                // (role-templates-and-policy-defaults.md section 3): the request role
+                // may only READ it (the login hot path resolves the lockout / session
+                // fields no-RLS through IPolicyDefaults), never write it. Only the
+                // bypass role (the super-admin path) edits it. Idempotent (REVOKE of an
+                // absent grant is a no-op).
+                + $"revoke insert, update, delete on platform.policy_defaults from {RequestRole};",
                 cancellationToken);
         }
     }

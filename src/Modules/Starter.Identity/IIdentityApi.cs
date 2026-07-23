@@ -165,11 +165,19 @@ public interface IIdentityApi : ITenantProvisioningIdentity, IUserDirectory
     /// refresh family, no new refresh token; the tenant is stamped on the
     /// session row so a later refresh preserves it. A revoked, expired, or
     /// version-stale session is a generic Unauthorized.
+    /// <para>
+    /// <paramref name="sessionMaxSeconds"/> is the tenant's session-lifetime
+    /// override (role-templates-and-policy-defaults.md section 5), resolved by the
+    /// endpoint through <see cref="Starter.Platform.Auth.ITenantSessionPolicyReader"/>
+    /// and passed in (this mint is endpoint-mediated). The issued token's lifetime is
+    /// <c>min(platform default, override)</c>; null inherits the platform default.
+    /// </para>
     /// </summary>
     Task<Result<TenantAccessToken>> SelectTenantAsync(
         Guid userId,
         Guid sessionId,
         Guid tenantId,
+        int? sessionMaxSeconds,
         CancellationToken cancellationToken);
 
     /// <summary>

@@ -41,7 +41,8 @@ internal sealed class PlatformAdminService(
     Clock clock,
     IOptions<PlatformAdminOptions> options,
     ITenantErasureService erasure,
-    IOptions<DsarOptions> dsarOptions)
+    IOptions<DsarOptions> dsarOptions,
+    IPolicyDefaults policyDefaults)
 {
     private const int MaxTenantPage = 200;
     private const int DefaultTenantPage = 50;
@@ -980,6 +981,108 @@ internal sealed class PlatformAdminService(
         return Result.Success(seeded);
     }
 
+    // --- Policy defaults (operator singleton on platform.policy_defaults, bypass-path) -
+    // The install-wide password / session / lockout floors
+    // (role-templates-and-policy-defaults.md section 3): a no-RLS SINGLETON, read and
+    // updated as raw SQL on the bypass connection (the plan-CRUD pattern, minus the
+    // multi-row concerns - there is exactly one row). An update is audited
+    // SYNCHRONOUSLY through the platform audit writer in the same transaction as the
+    // write, and then invalidates the in-process IPolicyDefaults cache so the change
+    // lands on the very next login-path read rather than waiting out the TTL.
+
+    public async Task<(int PasswordMinLength, int AccessTokenLifetimeSeconds, int RefreshLifetimeSeconds, int LockoutMaxAttempts, int LockoutDurationSeconds)>
+        GetPolicyDefaultsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select password_min_length, access_token_lifetime_seconds, refresh_lifetime_seconds, "
+            + "lockout_max_attempts, lockout_duration_seconds from platform.policy_defaults where one_row limit 1",
+            connection);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            // No singleton row (a DB that has not run the seed): report the built-in
+            // constants, the same fail-closed default the reader serves.
+            var fallback = PolicyDefaults.BuiltIn;
+            return (
+                fallback.PasswordMinLength,
+                fallback.AccessTokenLifetimeSeconds,
+                fallback.RefreshLifetimeSeconds,
+                fallback.LockoutMaxAttempts,
+                fallback.LockoutDurationSeconds);
+        }
+
+        return (
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetInt32(2),
+            reader.GetInt32(3),
+            reader.GetInt32(4));
+    }
+
+    public async Task<Result> UpdatePolicyDefaultsAsync(
+        Guid actorUserId,
+        int? passwordMinLength,
+        int? accessTokenLifetimeSeconds,
+        int? refreshLifetimeSeconds,
+        int? lockoutMaxAttempts,
+        int? lockoutDurationSeconds,
+        CancellationToken cancellationToken)
+    {
+        // Options-validation: each provided field is bounded (positive, sane maxima)
+        // on write, so a nonsensical floor can never be persisted.
+        if (ValidatePolicyBounds(
+                passwordMinLength,
+                accessTokenLifetimeSeconds,
+                refreshLifetimeSeconds,
+                lockoutMaxAttempts,
+                lockoutDurationSeconds) is { } validation)
+        {
+            return Result.Failure(validation);
+        }
+
+        var now = clock.UtcNow;
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        // Lock the singleton row (FOR UPDATE) and rewrite it whole, so a null argument
+        // means "unchanged" rather than "set null" - the PATCH tri-state, the plan-CRUD
+        // pattern.
+        var existing = await ReadPolicyDefaultsForUpdateAsync(connection, dbTransaction, cancellationToken);
+        if (existing is null)
+        {
+            return Result.Failure(new Error(
+                ErrorKind.NotFound,
+                "platform.policy_defaults_missing",
+                "The policy-defaults row is missing; the migration seed did not run."));
+        }
+
+        await using var update = new NpgsqlCommand(
+            "update platform.policy_defaults set "
+            + "password_min_length = @min, access_token_lifetime_seconds = @access, "
+            + "refresh_lifetime_seconds = @refresh, lockout_max_attempts = @maxAttempts, "
+            + "lockout_duration_seconds = @duration where one_row",
+            connection,
+            dbTransaction);
+        update.Parameters.AddWithValue("min", passwordMinLength ?? existing.Value.PasswordMinLength);
+        update.Parameters.AddWithValue("access", accessTokenLifetimeSeconds ?? existing.Value.AccessTokenLifetimeSeconds);
+        update.Parameters.AddWithValue("refresh", refreshLifetimeSeconds ?? existing.Value.RefreshLifetimeSeconds);
+        update.Parameters.AddWithValue("maxAttempts", lockoutMaxAttempts ?? existing.Value.LockoutMaxAttempts);
+        update.Parameters.AddWithValue("duration", lockoutDurationSeconds ?? existing.Value.LockoutDurationSeconds);
+        await update.ExecuteNonQueryAsync(cancellationToken);
+
+        var updated = PlatformAdminEvents.PolicyUpdated(actorUserId, now);
+        await auditWriter.WriteAsync(connection, dbTransaction, updated, subjectUserId: null, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        // The write is committed: drop the in-process cache so the next login-path
+        // read sees the new floor immediately, not after the TTL elapses.
+        policyDefaults.Invalidate();
+        return Result.Success();
+    }
+
     // --- Platform admins (bypass-path roster on platform.platform_admins) --
 
     public async Task<IReadOnlyList<(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt)>>
@@ -1128,6 +1231,14 @@ internal sealed class PlatformAdminService(
         // The grant window: the smaller of the configured window and the
         // 15-minute access cap, so an impersonation token can never outlive the
         // normal access-token lifetime.
+        //
+        // DELIBERATE EXCEPTION (role-templates-and-policy-defaults.md section 3): this
+        // cap reads the literal StarterAuth.AccessTokenLifetime const, NOT the
+        // operator-settable IPolicyDefaults value. The impersonation window is a hard
+        // security ceiling that policy must never WIDEN - if an operator raised the
+        // platform access lifetime, an impersonation token still cannot outlive the
+        // fixed 15-minute ceiling. This is the one access-lifetime reader that stays on
+        // the const; the actual token mint (AccessTokenIssuer) reads the policy.
         var window = TimeSpan.FromMinutes(options.Value.ImpersonationMinutes);
         var capped = window <= StarterAuth.AccessTokenLifetime ? window : StarterAuth.AccessTokenLifetime;
         var expiresAt = now + capped;
@@ -1505,6 +1616,82 @@ internal sealed class PlatformAdminService(
         var options = StarterDbContextOptions.ForConnection<TenancyDbContext>(connection).Options;
         return new TenancyDbContext(options, tenantContext);
     }
+
+    // --- Policy-defaults helpers ------------------------------------------
+
+    // Sane maxima for each field. password_min_length is capped at the Argon2
+    // MaximumLength (256) - a minimum above the maximum accepted length would reject
+    // every password. The lifetimes and durations are capped at one day / one year so
+    // an accidental huge value cannot silently disable expiry.
+    private static Error? ValidatePolicyBounds(
+        int? passwordMinLength,
+        int? accessTokenLifetimeSeconds,
+        int? refreshLifetimeSeconds,
+        int? lockoutMaxAttempts,
+        int? lockoutDurationSeconds)
+    {
+        if (passwordMinLength is int min && min is < 1 or > 256)
+        {
+            return PolicyBound("passwordMinLength", 1, 256);
+        }
+
+        if (accessTokenLifetimeSeconds is int access && access is < 1 or > 86400)
+        {
+            return PolicyBound("accessTokenLifetimeSeconds", 1, 86400);
+        }
+
+        if (refreshLifetimeSeconds is int refresh && refresh is < 1 or > 31536000)
+        {
+            return PolicyBound("refreshLifetimeSeconds", 1, 31536000);
+        }
+
+        if (lockoutMaxAttempts is int maxAttempts && maxAttempts is < 1 or > 1000)
+        {
+            return PolicyBound("lockoutMaxAttempts", 1, 1000);
+        }
+
+        if (lockoutDurationSeconds is int duration && duration is < 1 or > 86400)
+        {
+            return PolicyBound("lockoutDurationSeconds", 1, 86400);
+        }
+
+        return null;
+    }
+
+    private static Error PolicyBound(string field, int min, int max) => new(
+        ErrorKind.Validation,
+        "platform.policy_bounds",
+        $"{field} must be between {min} and {max}.");
+
+    private static async Task<PolicyDefaultsRowValues?> ReadPolicyDefaultsForUpdateAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select password_min_length, access_token_lifetime_seconds, refresh_lifetime_seconds, "
+            + "lockout_max_attempts, lockout_duration_seconds from platform.policy_defaults where one_row for update",
+            connection,
+            transaction);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new PolicyDefaultsRowValues(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetInt32(2),
+            reader.GetInt32(3),
+            reader.GetInt32(4));
+    }
+
+    private readonly record struct PolicyDefaultsRowValues(
+        int PasswordMinLength,
+        int AccessTokenLifetimeSeconds,
+        int RefreshLifetimeSeconds,
+        int LockoutMaxAttempts,
+        int LockoutDurationSeconds);
 
     // --- Plan helpers -----------------------------------------------------
 

@@ -180,6 +180,27 @@ internal sealed class TenancyApi(
         Guid actorUserId, string key, Guid? tenantId, CancellationToken cancellationToken) =>
         platform.SeedRoleTemplateAsync(actorUserId, key, tenantId, cancellationToken);
 
+    public Task<(int PasswordMinLength, int AccessTokenLifetimeSeconds, int RefreshLifetimeSeconds, int LockoutMaxAttempts, int LockoutDurationSeconds)>
+        GetPolicyDefaultsAsync(CancellationToken cancellationToken) =>
+        platform.GetPolicyDefaultsAsync(cancellationToken);
+
+    public Task<Result> UpdatePolicyDefaultsAsync(
+        Guid actorUserId,
+        int? passwordMinLength,
+        int? accessTokenLifetimeSeconds,
+        int? refreshLifetimeSeconds,
+        int? lockoutMaxAttempts,
+        int? lockoutDurationSeconds,
+        CancellationToken cancellationToken) =>
+        platform.UpdatePolicyDefaultsAsync(
+            actorUserId,
+            passwordMinLength,
+            accessTokenLifetimeSeconds,
+            refreshLifetimeSeconds,
+            lockoutMaxAttempts,
+            lockoutDurationSeconds,
+            cancellationToken);
+
     public Task<TenantRole?> GetCallerRoleAsync(Guid userId, CancellationToken cancellationToken) =>
         roles.GetCallerRoleAsync(userId, cancellationToken);
 
@@ -247,8 +268,8 @@ internal sealed class TenancyApi(
         admin.RevokeInvitationAsync(callerUserId, invitationId, cancellationToken);
 
     public Task<Result> UpdateSettingsAsync(
-        Guid callerUserId, string? name, string? slug, CancellationToken cancellationToken) =>
-        admin.UpdateSettingsAsync(callerUserId, name, slug, cancellationToken);
+        Guid callerUserId, string? name, string? slug, int? sessionMaxSeconds, CancellationToken cancellationToken) =>
+        admin.UpdateSettingsAsync(callerUserId, name, slug, sessionMaxSeconds, cancellationToken);
 
     public Task<Result> TransferOwnershipAsync(
         Guid callerUserId, Guid targetUserId, CancellationToken cancellationToken) =>

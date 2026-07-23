@@ -57,6 +57,9 @@ public static class PlatformAdminEndpoints
         platform.MapDelete("/role-templates/{key}", DeleteRoleTemplateAsync);
         platform.MapPost("/role-templates/{key}/seed", SeedRoleTemplateAsync);
 
+        platform.MapGet("/policy-defaults", GetPolicyDefaultsAsync);
+        platform.MapPatch("/policy-defaults", UpdatePolicyDefaultsAsync);
+
         platform.MapGet("/admins", ListAdminsAsync);
         platform.MapPost("/admins", GrantAdminAsync);
         platform.MapDelete("/admins/{userId:guid}", RevokeAdminAsync);
@@ -421,6 +424,43 @@ public static class PlatformAdminEndpoints
             error => PlatformAdminProblems.From(http, error));
     }
 
+    private static async Task<IResult> GetPolicyDefaultsAsync(
+        ITenancyApi tenancy, CancellationToken cancellationToken)
+    {
+        var policy = await tenancy.GetPolicyDefaultsAsync(cancellationToken);
+        return Results.Ok(new PolicyDefaultsResponse(
+            policy.PasswordMinLength,
+            policy.AccessTokenLifetimeSeconds,
+            policy.RefreshLifetimeSeconds,
+            policy.LockoutMaxAttempts,
+            policy.LockoutDurationSeconds));
+    }
+
+    private static async Task<IResult> UpdatePolicyDefaultsAsync(
+        UpdatePolicyDefaultsRequest request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await tenancy.UpdatePolicyDefaultsAsync(
+            actor.Value,
+            request.PasswordMinLength,
+            request.AccessTokenLifetimeSeconds,
+            request.RefreshLifetimeSeconds,
+            request.LockoutMaxAttempts,
+            request.LockoutDurationSeconds,
+            cancellationToken);
+        return result.Match(
+            () => Results.NoContent(),
+            error => PlatformAdminProblems.From(http, error));
+    }
+
     private static async Task<IResult> ListAdminsAsync(
         ITenancyApi tenancy, CancellationToken cancellationToken)
     {
@@ -675,6 +715,30 @@ public sealed record SeedRoleTemplateRequest(Guid? TenantId);
 
 /// <summary>POST /api/v1/platform/role-templates/{key}/seed success: how many tenants were newly seeded.</summary>
 public sealed record SeedRoleTemplateResponse(int Seeded);
+
+/// <summary>
+/// GET /api/v1/platform/policy-defaults success
+/// (role-templates-and-policy-defaults.md section 3): the install-wide password,
+/// session, and lockout floors.
+/// </summary>
+public sealed record PolicyDefaultsResponse(
+    int PasswordMinLength,
+    int AccessTokenLifetimeSeconds,
+    int RefreshLifetimeSeconds,
+    int LockoutMaxAttempts,
+    int LockoutDurationSeconds);
+
+/// <summary>
+/// PATCH /api/v1/platform/policy-defaults body. Every field is optional (a null
+/// leaves that facet unchanged); a provided value is bounds-validated (positive,
+/// sane maxima).
+/// </summary>
+public sealed record UpdatePolicyDefaultsRequest(
+    int? PasswordMinLength,
+    int? AccessTokenLifetimeSeconds,
+    int? RefreshLifetimeSeconds,
+    int? LockoutMaxAttempts,
+    int? LockoutDurationSeconds);
 
 /// <summary>GET /api/v1/platform/admins item.</summary>
 public sealed record PlatformAdminResponse(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt);

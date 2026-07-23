@@ -47,7 +47,12 @@ public static class IdentityModule
 
         services.AddModuleDbContext<IdentityDbContext>(IdentityDbContext.SchemaName, connectionString);
 
-        services.AddSingleton(new AccessTokenIssuer(signingKey));
+        // The access-token mint reads the platform access-token lifetime from
+        // IPolicyDefaults (a singleton registered by the platform), so it is built
+        // through a factory that resolves it. Still a singleton (both dependencies
+        // are singletons and it holds no per-request state).
+        services.AddSingleton(provider =>
+            new AccessTokenIssuer(signingKey, provider.GetRequiredService<IPolicyDefaults>()));
         services.AddSingleton<BreachedPasswordSet>();
         services.AddSingleton<PasswordPolicy>();
 

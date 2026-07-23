@@ -307,6 +307,31 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result<int>> SeedRoleTemplateAsync(
         Guid actorUserId, string key, Guid? tenantId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Reads the install-wide policy-defaults singleton (super-admin,
+    /// role-templates-and-policy-defaults.md section 3): the password, session, and
+    /// lockout floors the whole install inherits. Falls back to the built-in
+    /// constants when the singleton row is somehow absent.
+    /// </summary>
+    Task<(int PasswordMinLength, int AccessTokenLifetimeSeconds, int RefreshLifetimeSeconds, int LockoutMaxAttempts, int LockoutDurationSeconds)>
+        GetPolicyDefaultsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Updates the policy-defaults singleton (super-admin). Each field is a PATCH
+    /// tri-state: a null argument leaves that facet unchanged, a value replaces it.
+    /// Values are bounds-validated (positive, sane maxima). Audited synchronously as
+    /// <c>platform.policy.updated</c> and the in-process reader cache is invalidated,
+    /// so a change lands on the very next login-path read.
+    /// </summary>
+    Task<Result> UpdatePolicyDefaultsAsync(
+        Guid actorUserId,
+        int? passwordMinLength,
+        int? accessTokenLifetimeSeconds,
+        int? refreshLifetimeSeconds,
+        int? lockoutMaxAttempts,
+        int? lockoutDurationSeconds,
+        CancellationToken cancellationToken);
+
     // --- Tenant-admin control plane (active tenant, request path under RLS) ---
     // Every command below operates on the ACTIVE tenant resolved from the tid
     // claim; the endpoint gates each with RequireTenant + RequireTenantRole
@@ -358,11 +383,16 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result> RevokeInvitationAsync(Guid callerUserId, Guid invitationId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Updates the active tenant's name and/or slug (admin+). A slug collision on
-    /// the citext unique index is a Conflict (tenancy.slug_taken).
+    /// Updates the active tenant's name, slug, and/or session-lifetime override
+    /// (admin+, settings:manage). A slug collision on the citext unique index is a
+    /// Conflict (tenancy.slug_taken). <paramref name="sessionMaxSeconds"/>, when
+    /// given, is the tenant's tid-token lifetime override
+    /// (role-templates-and-policy-defaults.md section 5): validated positive and no
+    /// longer than the platform access-token lifetime (tighten only; a longer value
+    /// is rejected). Null leaves the current override unchanged.
     /// </summary>
     Task<Result> UpdateSettingsAsync(
-        Guid callerUserId, string? name, string? slug, CancellationToken cancellationToken);
+        Guid callerUserId, string? name, string? slug, int? sessionMaxSeconds, CancellationToken cancellationToken);
 
     /// <summary>
     /// Transfers ownership to an existing active member (owner-only): the target

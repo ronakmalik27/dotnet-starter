@@ -38,7 +38,7 @@ internal sealed class RegisterHandler(
                 "The email address is not valid."));
         }
 
-        var policyCheck = policy.Check(password);
+        var policyCheck = await policy.CheckAsync(password, cancellationToken);
         if (policyCheck.IsFailure)
         {
             return policyCheck;

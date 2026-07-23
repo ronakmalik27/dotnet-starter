@@ -30,6 +30,7 @@ internal sealed class SelectTenantHandler(
         Guid userId,
         Guid sessionId,
         Guid tenantId,
+        int? sessionMaxSeconds,
         CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
@@ -54,7 +55,12 @@ internal sealed class SelectTenantHandler(
         session.TenantId = tenantId;
         await db.SaveChangesAsync(cancellationToken);
 
-        var accessToken = accessTokens.Issue(user.Id, session.Id, user.TokenVersion, now, tenantId);
-        return new TenantAccessToken(accessToken, (int)StarterAuth.AccessTokenLifetime.TotalSeconds);
+        // The endpoint resolved the tenant's session-lifetime override (section 5)
+        // and passed it in; the issuer applies min(platform default, override) and
+        // returns the lifetime the token carries, so the reported expires_in matches
+        // exp exactly.
+        var accessToken = await accessTokens.IssueAsync(
+            user.Id, session.Id, user.TokenVersion, now, tenantId, sessionMaxSeconds, cancellationToken);
+        return new TenantAccessToken(accessToken.Token, accessToken.ExpiresInSeconds);
     }
 }

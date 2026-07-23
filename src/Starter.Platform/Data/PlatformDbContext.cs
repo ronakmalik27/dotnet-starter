@@ -168,6 +168,22 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.Property(e => e.AssignableScopes).HasColumnType("text[]");
         });
 
+        modelBuilder.Entity<PolicyDefaultsRow>(entity =>
+        {
+            // The install-wide policy defaults (role-templates-and-policy-defaults.md
+            // section 3). No RLS (a global platform table, like plans /
+            // feature_flags / role_templates), so NO ApplyTenantFilter: the login hot
+            // path reads it no-RLS through IPolicyDefaults and the super-admin path
+            // edits it on the bypass source. This is the FIRST SINGLETON here: the pk
+            // is a bool one_row fixed true with a check (one_row), so exactly one row
+            // can exist. The migration seeds that row with today's constants.
+            entity.ToTable(
+                "policy_defaults",
+                table => table.HasCheckConstraint("ck_policy_defaults_one_row", "one_row"));
+            entity.HasKey(e => e.OneRow);
+            entity.Property(e => e.OneRow).ValueGeneratedNever().HasDefaultValue(true);
+        });
+
         modelBuilder.Entity<FeatureFlagOverrideRow>(entity =>
         {
             // A tenant's own override of a flag (feature-flags.md section 2),
@@ -344,6 +360,9 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
     /// <summary>The operator-owned role-template catalogue (no RLS; read by the provisioner/seed, edited on the bypass path).</summary>
     internal DbSet<RoleTemplateRow> RoleTemplates => Set<RoleTemplateRow>();
+
+    /// <summary>The install-wide policy-defaults singleton (no RLS; read on the login hot path, edited on the bypass path).</summary>
+    internal DbSet<PolicyDefaultsRow> PolicyDefaults => Set<PolicyDefaultsRow>();
 
     /// <summary>The tenant's feature-flag overrides (RLS-enforced; set/cleared on the request path, read by the evaluator).</summary>
     internal DbSet<FeatureFlagOverrideRow> FeatureFlagOverrides => Set<FeatureFlagOverrideRow>();

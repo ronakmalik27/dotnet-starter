@@ -133,6 +133,7 @@ public static class TenancyEndpoints
         Guid id,
         IIdentityApi identity,
         ITenancyApi tenancy,
+        ITenantSessionPolicyReader sessionPolicy,
         HttpContext http,
         CancellationToken cancellationToken)
     {
@@ -165,7 +166,14 @@ public static class TenancyEndpoints
             return TypedResults.Problem(StarterProblems.TenantInactive(http));
         }
 
-        var result = await identity.SelectTenantAsync(userId.Value, sessionId.Value, id, cancellationToken);
+        // This mint is endpoint-mediated, so the endpoint resolves the tenant's
+        // session-lifetime override (role-templates-and-policy-defaults.md section 5)
+        // through the platform-declared port and passes it in; the issuer applies
+        // min(platform default, override). Reads the tenant the caller is about to
+        // bind to, which is why it goes through the (bypass) port and not an RLS read.
+        var sessionMaxSeconds = await sessionPolicy.GetSessionMaxSecondsAsync(id, cancellationToken);
+        var result = await identity.SelectTenantAsync(
+            userId.Value, sessionId.Value, id, sessionMaxSeconds, cancellationToken);
         return result.Match(
             token => (IResult)TypedResults.Ok(new TokenResponse(token.AccessToken, token.AccessTokenExpiresIn)),
             // A revoked/expired/version-stale session is a generic 401.

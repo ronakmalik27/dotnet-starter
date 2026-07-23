@@ -18,6 +18,7 @@ namespace Starter.Identity.Login;
 internal sealed class LoginHandler(
     IdentityDbContext db,
     SessionIssuer sessions,
+    IPolicyDefaults policyDefaults,
     Clock clock)
 {
     private static readonly Error InvalidCredentials = new(
@@ -68,14 +69,62 @@ internal sealed class LoginHandler(
             // only by a reset). Burn the same Argon2 cost so
             // timing does not reveal which, and answer the same generic
             // 401 - a disabled-password hint would confirm the account
-            // exists to anyone holding just the email.
+            // exists to anyone holding just the email. A Google-only account
+            // has no password method, so it lands here and is never locked.
+            PasswordHasher.VerifyDummy(password);
+            return InvalidCredentials;
+        }
+
+        // TIMING-SAFE locked branch (role-templates-and-policy-defaults.md section
+        // 4): when the credential is locked, STILL pay the full Argon2 cost before
+        // returning the same generic 401. A locked account that early-returned
+        // before hashing would be measurably FASTER than an unknown account or a
+        // non-locked wrong password (both pay full Argon2), and that timing delta
+        // is a real oracle revealing "this email exists and is currently locked".
+        // The timing equalization outranks the CPU saving a lockout would otherwise
+        // buy, and the answer carries no distinct "locked" hint (enumeration-safe;
+        // a 423 with a retry-after is a documented section-7 grow-into).
+        if (method.LockedUntil is DateTimeOffset lockedUntil && lockedUntil > now)
+        {
             PasswordHasher.VerifyDummy(password);
             return InvalidCredentials;
         }
 
         if (!PasswordHasher.Verify(password, method.PasswordHash))
         {
+            // Wrong password: increment the counter and conditionally lock in ONE
+            // standalone ExecuteUpdateAsync with NO ambient transaction - LoginHandler
+            // deliberately holds none at this point, to avoid pinning a pooled
+            // connection during Argon2 under brute-force load. The threshold is
+            // expressed IN the update (failed_attempts + 1 >= max), so concurrent
+            // attempts serialize on the row and cannot lose an increment or undercount.
+            var policy = await policyDefaults.GetAsync(cancellationToken);
+            var maxAttempts = policy.LockoutMaxAttempts;
+            DateTimeOffset? lockUntil = now + TimeSpan.FromSeconds(policy.LockoutDurationSeconds);
+            await db.AuthMethods
+                .Where(candidate => candidate.Id == method.Id)
+                .ExecuteUpdateAsync(
+                    set => set
+                        .SetProperty(m => m.FailedAttempts, m => m.FailedAttempts + 1)
+                        .SetProperty(
+                            m => m.LockedUntil,
+                            m => m.FailedAttempts + 1 >= maxAttempts ? lockUntil : m.LockedUntil),
+                    cancellationToken);
             return InvalidCredentials;
+        }
+
+        // Successful verify: reset the lockout counter (auto-unlock made the attempt
+        // possible again, or a stray failure never reached the threshold). Only when
+        // there is something to clear, so the happy path adds no extra write.
+        if (method.FailedAttempts != 0 || method.LockedUntil is not null)
+        {
+            await db.AuthMethods
+                .Where(candidate => candidate.Id == method.Id)
+                .ExecuteUpdateAsync(
+                    set => set
+                        .SetProperty(m => m.FailedAttempts, 0)
+                        .SetProperty(m => m.LockedUntil, (DateTimeOffset?)null),
+                    cancellationToken);
         }
 
         if (PasswordHasher.NeedsRehash(method.PasswordHash))

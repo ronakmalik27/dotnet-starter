@@ -121,8 +121,9 @@ internal sealed class IdentityApi(
         Guid userId,
         Guid sessionId,
         Guid tenantId,
+        int? sessionMaxSeconds,
         CancellationToken cancellationToken) =>
-        selectTenant.HandleAsync(userId, sessionId, tenantId, cancellationToken);
+        selectTenant.HandleAsync(userId, sessionId, tenantId, sessionMaxSeconds, cancellationToken);
 
     public Task<Result<TenantAccessToken>> IssueImpersonationTokenAsync(
         Guid subjectUserId,

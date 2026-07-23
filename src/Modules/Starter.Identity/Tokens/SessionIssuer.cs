@@ -16,6 +16,7 @@ namespace Starter.Identity.Tokens;
 internal sealed class SessionIssuer(
     IdentityDbContext db,
     AccessTokenIssuer accessTokens,
+    IPolicyDefaults policyDefaults,
     OutboxWriter outbox)
 {
     /// <summary>
@@ -37,6 +38,12 @@ internal sealed class SessionIssuer(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        // The refresh-family lifetime is the install-wide platform default
+        // (role-templates-and-policy-defaults.md section 3), enforced here at
+        // family issue. It is NOT tenant-tightened (only the tid access token is,
+        // section 5): the family is not scoped to one tenant. Rotation preserves
+        // this absolute deadline, so it is read once, here.
+        var defaults = await policyDefaults.GetAsync(cancellationToken);
         var refreshToken = RefreshTokens.NewToken();
         var session = new Session
         {
@@ -52,7 +59,7 @@ internal sealed class SessionIssuer(
             Ip = ipAddress,
             CreatedAt = now,
             LastActiveAt = now,
-            ExpiresAt = now.Add(StarterAuth.RefreshFamilyLifetime),
+            ExpiresAt = now.AddSeconds(defaults.RefreshLifetimeSeconds),
         };
 
         var ownsTransaction = db.Database.CurrentTransaction is null;
@@ -83,12 +90,17 @@ internal sealed class SessionIssuer(
             }
         }
 
-        var accessToken = accessTokens.Issue(user.Id, session.Id, user.TokenVersion, now, tenantId);
+        // The session issue path (login and self-serve signup) never tightens the
+        // tid lifetime: a plain login is tenant-less, and a fresh signup's tenant
+        // has no override yet. So no tenant override is resolved here; the reported
+        // expires_in is exactly the lifetime the minted token carries.
+        var accessToken = await accessTokens.IssueAsync(
+            user.Id, session.Id, user.TokenVersion, now, tenantId, tenantSessionMaxSeconds: null, cancellationToken);
         return new IssuedTokens(
             user.Id,
             session.Id,
-            accessToken,
-            (int)StarterAuth.AccessTokenLifetime.TotalSeconds,
+            accessToken.Token,
+            accessToken.ExpiresInSeconds,
             refreshToken,
             session.ExpiresAt);
     }

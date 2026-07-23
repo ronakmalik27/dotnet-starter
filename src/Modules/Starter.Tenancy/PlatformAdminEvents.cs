@@ -201,6 +201,29 @@ internal static class PlatformAdminEvents
         };
 
     /// <summary>
+    /// platform.policy.updated: a super-admin edited the install-wide policy-defaults
+    /// singleton (password / session / lockout floors,
+    /// role-templates-and-policy-defaults.md sections 3, 6). A null-tenant operator
+    /// action, audited SYNCHRONOUSLY through the platform audit writer in the same
+    /// transaction as the singleton write - never by the async tenant projection. The
+    /// singleton has no Guid identity, so the entity id is empty and the payload
+    /// carries no fields (the values are on the row; the event records only that a
+    /// change happened, by whom).
+    /// </summary>
+    public static DomainEventRecord PolicyUpdated(
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.policy.updated",
+            EntityId = Guid.Empty,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
     /// platform.tenant.erased: a super-admin hard-deleted (erased) a tenant, purging
     /// its rows (data-export-and-erasure.md sections 5, 6, GDPR Art. 17). Written
     /// SYNCHRONOUSLY to platform.platform_audit_log in the SAME bypass transaction as

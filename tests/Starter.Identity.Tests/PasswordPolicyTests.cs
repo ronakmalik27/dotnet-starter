@@ -1,59 +1,78 @@
 using Shouldly;
 using Starter.Identity.Passwords;
+using Starter.Platform.Auth;
 using Xunit;
 
 namespace Starter.Identity.Tests;
 
 /// <summary>
-/// Password policy: length >= 10, offline breach check, and deliberately
-/// nothing else - no composition rules.
+/// Password policy: minimum length (from the platform policy defaults, 10 by
+/// default), offline breach check, and deliberately nothing else - no composition
+/// rules.
 /// </summary>
 public class PasswordPolicyTests
 {
-    private static readonly PasswordPolicy Policy = new(new BreachedPasswordSet());
+    private static readonly PasswordPolicy Policy = new(new BreachedPasswordSet(), new StubPolicyDefaults());
 
     [Fact]
-    public void Check_NineCharacters_TooShort()
+    public async Task Check_NineCharacters_TooShort()
     {
-        var result = Policy.Check("abcdefghi");
+        var result = await Policy.CheckAsync("abcdefghi", CancellationToken.None);
 
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("auth.password_too_short");
     }
 
     [Fact]
-    public void Check_TenStrongCharacters_Passes()
+    public async Task Check_TenStrongCharacters_Passes()
     {
-        Policy.Check("kZ2!vq81#Ls0").IsSuccess.ShouldBeTrue();
+        (await Policy.CheckAsync("kZ2!vq81#Ls0", CancellationToken.None)).IsSuccess.ShouldBeTrue();
     }
 
     [Fact]
-    public void Check_NoCompositionRules_AllLowercasePassphrasePasses()
+    public async Task Check_NoCompositionRules_AllLowercasePassphrasePasses()
     {
-        Policy.Check("battery staple horse purple").IsSuccess.ShouldBeTrue();
+        (await Policy.CheckAsync("battery staple horse purple", CancellationToken.None))
+            .IsSuccess.ShouldBeTrue();
     }
 
     [Theory]
     [InlineData("1234567890")]
     [InlineData("qwertyuiop")]
     [InlineData("password123")]
-    public void Check_KnownBreachedPassword_Rejected(string breached)
+    public async Task Check_KnownBreachedPassword_Rejected(string breached)
     {
-        var result = Policy.Check(breached);
+        var result = await Policy.CheckAsync(breached, CancellationToken.None);
 
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("auth.password_breached");
     }
 
     [Fact]
-    public void Check_AbsurdLength_Rejected()
+    public async Task Check_AbsurdLength_Rejected()
     {
         // Argon2 cost scales with input length; a megabyte password is a
         // CPU-exhaustion vector, not a credential.
-        var result = Policy.Check(new string('x', 300));
+        var result = await Policy.CheckAsync(new string('x', 300), CancellationToken.None);
 
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("auth.password_too_long");
+    }
+
+    [Fact]
+    public async Task Check_MinimumLength_ComesFromPolicyDefaults()
+    {
+        // Raise the platform minimum to 12: an 11-char password now fails where the
+        // built-in 10 would have passed it. This is the reader-driven minimum.
+        var policy = new PasswordPolicy(
+            new BreachedPasswordSet(),
+            new StubPolicyDefaults(PolicyDefaults.BuiltIn with { PasswordMinLength = 12 }));
+
+        var eleven = await policy.CheckAsync("kZ2!vq81#La", CancellationToken.None);
+        eleven.IsFailure.ShouldBeTrue();
+        eleven.Error.Code.ShouldBe("auth.password_too_short");
+
+        (await policy.CheckAsync("kZ2!vq81#Ls0", CancellationToken.None)).IsSuccess.ShouldBeTrue();
     }
 
     [Fact]

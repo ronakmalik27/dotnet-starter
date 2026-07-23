@@ -55,7 +55,11 @@ public class BypassDataSourceContainmentTests
     //   on the no-RLS platform table);
     // - the API-key resolver (a request authenticated by an API key holds no tid
     //   until the key resolves one, so the tenant-less key_hash lookup crosses the
-    //   boundary, exactly like invitation accept - service-accounts.md sections 3, 4).
+    //   boundary, exactly like invitation accept - service-accounts.md sections 3, 4);
+    // - the tenant session-policy reader (the tid mint reads a named tenant's
+    //   session_max_seconds override at select-tenant / refresh, before the caller
+    //   holds a request-scoped tid for it, so the read crosses the boundary exactly
+    //   like the membership directory - role-templates-and-policy-defaults.md section 5).
     private static readonly string[] TenancyAllowlist =
     [
         "Starter.Tenancy.ControlPlane.TenantProvisioner",
@@ -65,6 +69,7 @@ public class BypassDataSourceContainmentTests
         "Starter.Tenancy.ControlPlane.PlatformAdminDirectory",
         "Starter.Tenancy.ControlPlane.PlatformAdminService",
         "Starter.Tenancy.ControlPlane.ImpersonationGrantReader",
+        "Starter.Tenancy.ControlPlane.TenantSessionPolicyReader",
     ];
 
     [Fact]

@@ -42,7 +42,7 @@ internal sealed class ChangePasswordHandler(
         ArgumentNullException.ThrowIfNull(currentPassword);
         ArgumentNullException.ThrowIfNull(newPassword);
 
-        var policyCheck = policy.Check(newPassword);
+        var policyCheck = await policy.CheckAsync(newPassword, cancellationToken);
         if (policyCheck.IsFailure)
         {
             return policyCheck;

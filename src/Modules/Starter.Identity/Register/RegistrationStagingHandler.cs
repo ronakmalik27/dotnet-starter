@@ -56,7 +56,7 @@ internal sealed class RegistrationStagingHandler(PasswordPolicy policy, OutboxWr
                 ErrorKind.Validation, "auth.email_invalid", "The email address is not valid."));
         }
 
-        var policyCheck = policy.Check(password);
+        var policyCheck = await policy.CheckAsync(password, cancellationToken);
         if (policyCheck.IsFailure)
         {
             return Result.Failure<StagedRegistration>(policyCheck.Error);

@@ -54,6 +54,10 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
             // sub at 255 ASCII characters - size to the spec, not the
             // current issuer behavior.
             method.Property(m => m.ProviderSubject).HasMaxLength(255);
+            // Lockout state on the password credential
+            // (role-templates-and-policy-defaults.md section 4): failed_attempts
+            // defaults to 0, locked_until is null until the threshold is crossed.
+            method.Property(m => m.FailedAttempts).HasDefaultValue(0);
             method.HasOne<User>().WithMany().HasForeignKey(m => m.UserId);
         });
 

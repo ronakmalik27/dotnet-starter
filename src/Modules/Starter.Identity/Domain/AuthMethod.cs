@@ -32,6 +32,22 @@ internal sealed class AuthMethod
     /// </summary>
     public DateTimeOffset? DisabledAt { get; set; }
 
+    /// <summary>
+    /// Consecutive failed password attempts (role-templates-and-policy-defaults.md
+    /// section 4). Incremented on a wrong password, reset to 0 on a successful
+    /// verify. Only the kind=password row carries lockout state; Google-OIDC has no
+    /// password credential, so it is never locked.
+    /// </summary>
+    public int FailedAttempts { get; set; }
+
+    /// <summary>
+    /// When the password credential is locked until, or null when it is not locked.
+    /// Set when <see cref="FailedAttempts"/> crosses the platform lockout threshold;
+    /// auto-unlock is implicit (once <c>locked_until &lt;= now</c> a fresh attempt is
+    /// allowed again), so no unlock job is needed.
+    /// </summary>
+    public DateTimeOffset? LockedUntil { get; set; }
+
     public required DateTimeOffset CreatedAt { get; init; }
 }
 

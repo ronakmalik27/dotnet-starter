@@ -48,6 +48,17 @@ internal sealed class Tenant : ITenantOwned
     /// </summary>
     public int SeatLimit { get; set; }
 
+    /// <summary>
+    /// The tenant's session-lifetime override in seconds, or null when it inherits
+    /// the platform default (role-templates-and-policy-defaults.md section 5). A
+    /// tenant admin may TIGHTEN its tid-token lifetime (settings:manage): the value
+    /// is validated <c>&lt;= platform access_token_lifetime_seconds</c> on write, and
+    /// the tid mint issues <c>min(platform default, override)</c>. The one coherent
+    /// tenant override in the global-user model (password and lockout are
+    /// install-wide).
+    /// </summary>
+    public int? SessionMaxSeconds { get; set; }
+
     public required DateTimeOffset CreatedAt { get; init; }
 
     /// <summary>The user who created the tenant (the first owner). A bare id by value, no cross-schema FK.</summary>
