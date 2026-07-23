@@ -504,6 +504,12 @@ if (postgres is not null)
     // RequirePlatformAdmin, with a tenant filter and a scope=platform selector).
     app.MapTenantAuditEndpoints();
     app.MapPlatformAuditEndpoints();
+    // The in-app notifications inbox (in-app-notifications.md section 4): the
+    // caller's own notifications over the active tenant
+    // (/api/v1/tenant/notifications), under RequireTenant + RequireAuthorization
+    // with no permission atom - reading and marking your own inbox is your own
+    // data, filtered recipient_user_id = caller under RLS.
+    app.MapNotificationEndpoints();
 
     ApiVersionSet versionSet = app.NewApiVersionSet()
         .HasApiVersion(new ApiVersion(1))

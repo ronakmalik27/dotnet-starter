@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Starter.Platform.Dsar;
 using Starter.Platform.Events;
+using Starter.Platform.Notifications;
 
 namespace Starter.Platform.Data;
 
@@ -28,6 +29,19 @@ public static class PlatformPersistence
         // The synchronous platform-audit writer (used by the Tenancy control
         // plane on the bypass path). Stateless apart from the clock, so singleton.
         services.AddSingleton<IPlatformAuditWriter, PlatformAuditWriter>();
+
+        // The in-app notifications projection (in-app-notifications.md sections 3, 5),
+        // Fast lane like the audit projection: a curated subset of tenant events
+        // becomes per-recipient inbox rows. Singleton and singleton-safe: it
+        // resolves the scoped PlatformDbContext from the dispatcher's per-consume
+        // scope, exactly like AuditProjectionConsumer.
+        services.AddSingleton<IDomainEventConsumer, NotificationProjectionConsumer>();
+
+        // The in-app inbox read/mark-read surface the API calls
+        // (in-app-notifications.md section 4): RLS-bound reads and updates of the
+        // caller's own rows through the request-scoped PlatformDbContext, never the
+        // bypass data source. Request-scoped like the context it reads.
+        services.AddScoped<INotificationService, NotificationService>();
 
         // The entitlement source (billing-and-entitlements.md section 3): resolves
         // a plan key to its entitlements by reading the no-RLS platform.plans

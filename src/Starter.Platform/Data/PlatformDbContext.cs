@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Starter.Platform.Events;
 using Starter.Platform.Http;
+using Starter.Platform.Notifications;
 using Starter.Platform.Tenancy;
 using Starter.Platform.Webhooks;
 
@@ -281,6 +282,39 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
             entity.Property(e => e.Used).HasColumnType("bigint");
             ApplyTenantFilter(entity);
         });
+
+        modelBuilder.Entity<NotificationRow>(entity =>
+        {
+            // The per-recipient in-app inbox (in-app-notifications.md section 2),
+            // tenant-owned and RLS-enforced (the RLS policy is hand-written in the
+            // migration). A NORMAL request-role DML table (like usage_counters, no
+            // boot REVOKE): the projection writes it under RLS on the consumer scope,
+            // and the recipient reads/updates their own rows under RLS on the request
+            // path. pk is a fresh Ids.NewId; data is the render jsonb.
+            entity.ToTable("notifications");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Type).HasColumnType("text");
+            entity.Property(e => e.Data).HasColumnType("jsonb");
+            // The dedup key: at-least-once redelivery of the same event re-projects
+            // the same (event, recipient) pair, hits this unique index, and the
+            // consumer treats the violation as success. Keyed on the pair (not the
+            // event id alone) so one event MAY fan out to several recipients later.
+            entity.HasIndex(e => new { e.SourceEventId, e.RecipientUserId })
+                .IsUnique()
+                .HasDatabaseName("ux_notifications_source_event_recipient");
+            // The inbox LIST (keyset (created_at desc, id desc) within the caller's
+            // own rows in the active tenant).
+            entity.HasIndex(e => new { e.TenantId, e.RecipientUserId, e.CreatedAt, e.Id })
+                .IsDescending(false, false, true, true)
+                .HasDatabaseName("ix_notifications_tenant_recipient_created");
+            // The PARTIAL index backing the unread-count poll and the read-all bulk
+            // update: it stays small because unread rows are self-limiting (users
+            // clear them), so a badge poll never walks the caller's whole history.
+            entity.HasIndex(e => new { e.TenantId, e.RecipientUserId })
+                .HasFilter("read_at is null")
+                .HasDatabaseName("ix_notifications_unread");
+            ApplyTenantFilter(entity);
+        });
     }
 
     /// <summary>The operator-owned plan catalogue (no RLS; read on the request path, edited on the bypass path).</summary>
@@ -312,4 +346,7 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
     /// <summary>The metered-quota counters (RLS-enforced; incremented on the request path, read for the usage report).</summary>
     internal DbSet<UsageCounterRow> UsageCounters => Set<UsageCounterRow>();
+
+    /// <summary>The per-recipient in-app inbox (RLS-enforced; written by the projection consumer, read/marked-read on the request path).</summary>
+    internal DbSet<NotificationRow> Notifications => Set<NotificationRow>();
 }

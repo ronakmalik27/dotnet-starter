@@ -730,9 +730,11 @@ rewrite:
   `status` - a retention window, then a Platform-executed bypass purge that
   produces a final export first. DESIGNED and being built out - see
   [data-export-and-erasure.md](data-export-and-erasure.md).
-- **In-app notifications, data residency**: notifications ride the existing
-  `IEmailSender` and consumer pattern; residency rides the silo indirection
-  (section 12).
+- **In-app notifications**: a per-user inbox projected from domain events by a
+  Platform consumer (the audit-projection shape, targeted at one recipient), the
+  in-app channel alongside the existing `IEmailSender` email consumer. DESIGNED and
+  being built out - see [in-app-notifications.md](in-app-notifications.md).
+- **Data residency**: rides the silo indirection (section 12).
 - **Usage quotas**: plan-driven per-tenant limits, both resource-count gauges
   (`maxWorkspaces`, the seat limit) and metered windowed counters, resolved from
   the plan's `limits` and enforced FAIL-OPEN at the boundary (a per-tenant plan
