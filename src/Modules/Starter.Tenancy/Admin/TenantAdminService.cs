@@ -595,17 +595,10 @@ internal sealed class TenantAdminService(
     private static readonly Error LastOwner = new(
         ErrorKind.Conflict, "tenancy.last_owner", "The last owner cannot be removed or demoted.");
 
-    private async Task<bool> IsLastOwnerAsync(CancellationToken cancellationToken)
-    {
-        // Only "is there more than one owner" matters, so cap the count at 2.
-        var owners = await db.Memberships
-            .AsNoTracking()
-            .Where(membership =>
-                membership.Role == MembershipRole.Owner && membership.Status == MembershipStatus.Active)
-            .Take(2)
-            .CountAsync(cancellationToken);
-        return owners <= 1;
-    }
+    // The last-owner guard is the shared MembershipQueries helper, so the SCIM
+    // deactivate path enforces the exact same rule as the admin member ops.
+    private Task<bool> IsLastOwnerAsync(CancellationToken cancellationToken) =>
+        MembershipQueries.IsLastOwnerAsync(db, cancellationToken);
 
     private static bool IsUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };

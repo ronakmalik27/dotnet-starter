@@ -52,6 +52,13 @@ internal static class DeliverableEvents
         // enterprise SSO config / domain-claim changes (sso-and-scim.md section 6):
         // tenant-scoped, so audited AND webhook-deliverable like the rest.
         "tenancy.sso.configured",
+        // SCIM token rotation and directory-driven member deactivate/reactivate
+        // (sso-and-scim.md section 5): tenant-scoped, so audited AND
+        // webhook-deliverable like the rest. A directory offboard cutting tenant
+        // access is exactly the change a security team wants on the record.
+        "tenancy.scim.token_rotated",
+        "tenancy.member.suspended",
+        "tenancy.member.reactivated",
         // webhook endpoint lifecycle (webhooks.md section 8): defined in Platform
         // (WebhookEvents) because the feature cannot reference the Tenancy module, but
         // tenant-scoped like the rest.

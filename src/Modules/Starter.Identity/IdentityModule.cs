@@ -9,6 +9,7 @@ using Starter.Identity.Mfa;
 using Starter.Identity.Notifications;
 using Starter.Identity.PasswordReset;
 using Starter.Identity.Passwords;
+using Starter.Identity.Provisioning;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
 using Starter.Identity.SetPassword;
@@ -146,6 +147,7 @@ public static class IdentityModule
         services.AddScoped<ResendVerificationHandler>();
         services.AddScoped<VerifiedEmailQuery>();
         services.AddScoped<UserDirectoryQuery>();
+        services.AddScoped<UserProvisioner>();
         services.AddScoped<EnrollMfaHandler>();
         services.AddScoped<ConfirmMfaHandler>();
         services.AddScoped<VerifyMfaHandler>();
@@ -159,6 +161,10 @@ public static class IdentityModule
         services.AddScoped<ITenantProvisioningIdentity>(
             provider => provider.GetRequiredService<IIdentityApi>());
         services.AddScoped<IUserDirectory>(
+            provider => provider.GetRequiredService<IIdentityApi>());
+        // The SCIM resolve-or-create seam the Tenancy module consumes: one
+        // implementation, no drift, and Tenancy never references Identity.
+        services.AddScoped<IUserProvisioner>(
             provider => provider.GetRequiredService<IIdentityApi>());
 
         // The account-security notifications consumer. Singleton and

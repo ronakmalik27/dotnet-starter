@@ -1,6 +1,7 @@
 using Starter.Tenancy.Admin;
 using Starter.Tenancy.ControlPlane;
 using Starter.Tenancy.Rbac;
+using Starter.Tenancy.Scim;
 using Starter.Tenancy.ServiceAccounts;
 using Starter.Tenancy.Sso;
 using Starter.Platform.Auth;
@@ -29,6 +30,9 @@ internal sealed class TenancyApi(
     TenantAdminService admin,
     InvitationAcceptor acceptor,
     SsoConfigService sso,
+    ScimTokenService scimTokens,
+    ScimTokenResolver scimTokenResolver,
+    ScimProvisioningService scimProvisioning,
     PlatformAdminDirectory platformAdmins,
     PlatformAdminService platform) : ITenancyApi
 {
@@ -432,4 +436,60 @@ internal sealed class TenancyApi(
     public Task<Result<Guid>> ClaimSsoDomainAsync(
         Guid callerUserId, string domain, CancellationToken cancellationToken) =>
         sso.ClaimDomainAsync(callerUserId, domain, cancellationToken);
+
+    public Task<Guid?> ResolveScimTokenAsync(string tokenHash, CancellationToken cancellationToken) =>
+        scimTokenResolver.ResolveScimTokenAsync(tokenHash, cancellationToken);
+
+    public Task<Result<(Guid Id, string RawToken, string TokenPrefix, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt)>>
+        CreateScimTokenAsync(Guid callerUserId, DateTimeOffset? expiresAt, CancellationToken cancellationToken) =>
+        scimTokens.CreateAsync(callerUserId, expiresAt, cancellationToken);
+
+    public Task<IReadOnlyList<(Guid Id, string TokenPrefix, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt)>>
+        ListScimTokensAsync(CancellationToken cancellationToken) =>
+        scimTokens.ListAsync(cancellationToken);
+
+    public Task<Result<(string RawToken, string TokenPrefix)>>
+        RotateScimTokenAsync(Guid callerUserId, Guid tokenId, CancellationToken cancellationToken) =>
+        scimTokens.RotateAsync(callerUserId, tokenId, cancellationToken);
+
+    public Task<Result> RevokeScimTokenAsync(
+        Guid callerUserId, Guid tokenId, CancellationToken cancellationToken) =>
+        scimTokens.RevokeAsync(callerUserId, tokenId, cancellationToken);
+
+    public async Task<Result<(Guid UserId, string Email, bool Active, string? ExternalId, bool Created)>>
+        ProvisionScimUserAsync(string userName, string? externalId, CancellationToken cancellationToken)
+    {
+        var result = await scimProvisioning.ProvisionAsync(userName, externalId, cancellationToken);
+        return result.Match(
+            provisioned => Result.Success((
+                provisioned.View.UserId,
+                provisioned.View.Email,
+                provisioned.View.Active,
+                provisioned.View.ExternalId,
+                provisioned.Created)),
+            error => Result.Failure<(Guid, string, bool, string?, bool)>(error));
+    }
+
+    public async Task<(Guid UserId, string Email, bool Active, string? ExternalId)?>
+        GetScimUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var view = await scimProvisioning.GetAsync(userId, cancellationToken);
+        return view is { } found ? (found.UserId, found.Email, found.Active, found.ExternalId) : null;
+    }
+
+    public async Task<(Guid UserId, string Email, bool Active, string? ExternalId)?>
+        FindScimUserByUserNameAsync(string userName, CancellationToken cancellationToken)
+    {
+        var view = await scimProvisioning.FindByUserNameAsync(userName, cancellationToken);
+        return view is { } found ? (found.UserId, found.Email, found.Active, found.ExternalId) : null;
+    }
+
+    public async Task<Result<(Guid UserId, string Email, bool Active, string? ExternalId)>>
+        SetScimUserActiveAsync(Guid userId, bool active, CancellationToken cancellationToken)
+    {
+        var result = await scimProvisioning.SetActiveAsync(userId, active, cancellationToken);
+        return result.Match(
+            view => Result.Success((view.UserId, view.Email, view.Active, view.ExternalId)),
+            error => Result.Failure<(Guid, string, bool, string?)>(error));
+    }
 }

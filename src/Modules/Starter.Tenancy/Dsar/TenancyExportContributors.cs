@@ -61,6 +61,9 @@ internal static class TenancyExportContributors
                     row.Role,
                     row.Status,
                     row.InvitedBy,
+                    // The IdP's SCIM externalId (personal data, not a secret): it
+                    // belongs in an Art. 15 export like the rest of the row.
+                    row.ScimExternalId,
                     row.CreatedAt,
                 })
                 .ToListAsync(cancellationToken);
@@ -301,6 +304,34 @@ internal static class TenancyExportContributors
                     row.Domain,
                     row.VerifiedAt,
                     row.CreatedAt,
+                })
+                .ToListAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return rows;
+        }
+    }
+
+    /// <summary>The tenant's SCIM tokens. The <c>token_hash</c> is EXCLUDED (a credential column, section 8).</summary>
+    internal sealed class ScimTokens(TenancyDbContext db) : IDataExportContributor
+    {
+        public string Section => "scimTokens";
+
+        public async Task<object?> ExportAsync(CancellationToken cancellationToken)
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var rows = await db.ScimTokens
+                .AsNoTracking()
+                .OrderBy(row => row.CreatedAt)
+                .ThenBy(row => row.Id)
+                .Select(row => new
+                {
+                    row.Id,
+                    // TokenHash is deliberately absent (a [Sensitive] credential column).
+                    row.TokenPrefix,
+                    row.CreatedBy,
+                    row.CreatedAt,
+                    row.ExpiresAt,
+                    row.RevokedAt,
                 })
                 .ToListAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);

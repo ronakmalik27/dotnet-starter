@@ -47,6 +47,8 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
 
     public DbSet<SsoDomainClaim> SsoDomainClaims => Set<SsoDomainClaim>();
 
+    public DbSet<ScimToken> ScimTokens => Set<ScimToken>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -72,6 +74,9 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
         {
             membership.Property(m => m.Role).HasMaxLength(32);
             membership.Property(m => m.Status).HasMaxLength(32);
+            // The IdP's SCIM externalId, nullable and free-text (a directory handle,
+            // not a domain-shaped value), only set for a SCIM-provisioned member.
+            membership.Property(m => m.ScimExternalId).HasColumnType("text");
             // A user belongs to a tenant at most once; also the mint-check
             // lookup index (tenant_id, user_id).
             membership.HasIndex(m => new { m.TenantId, m.UserId }).IsUnique();
@@ -245,6 +250,23 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
             // The admin list is a tenant-scoped read.
             claim.HasIndex(c => c.TenantId);
             ApplyTenantFilter(claim);
+        });
+
+        modelBuilder.Entity<ScimToken>(token =>
+        {
+            token.Property(t => t.TokenHash).HasMaxLength(64);
+            token.Property(t => t.TokenPrefix).HasMaxLength(32);
+            // The token_hash index is GLOBAL and unique (sso-and-scim.md section 5):
+            // the resolve is tenant-less (a request has no tid until the token resolves
+            // it), so the lookup keys on the hash alone. RLS governs visibility, not
+            // this constraint, so cross-tenant uniqueness is fine (the same shape as
+            // service_accounts.key_hash).
+            token.HasIndex(t => t.TokenHash)
+                .IsUnique()
+                .HasDatabaseName("ix_scim_tokens_token_hash_unique");
+            // The admin list is a tenant-scoped read.
+            token.HasIndex(t => t.TenantId);
+            ApplyTenantFilter(token);
         });
     }
 }

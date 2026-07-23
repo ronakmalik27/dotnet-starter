@@ -756,4 +756,98 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// </summary>
     Task<Result<Guid>> ClaimSsoDomainAsync(
         Guid callerUserId, string domain, CancellationToken cancellationToken);
+
+    // --- SCIM 2.0 Users provisioning (sso-and-scim.md section 5) ----------
+    // A tenant mints a SCIM bearer through the tenant-admin API (settings:manage,
+    // the same enterprise-integration admin surface as the SSO config). The bearer
+    // then drives /scim/v2/Users under a DEDICATED auth scheme: it resolves
+    // tenant-less to its tenant (the resolve below, on the bypass path), and every
+    // Users operation runs RLS-scoped to THAT tenant on the request path.
+    // Possession of the tid-scoped bearer IS the authority for the SCIM surface, so
+    // the Users operations carry no permission gate; the token-management surface
+    // does (settings:manage).
+
+    /// <summary>
+    /// Resolves a presented SCIM bearer by its SHA-256 hex hash to its tenant
+    /// (sso-and-scim.md section 5): the tenant-less lookup on the bypass path,
+    /// returning the tenant id for a LIVE token or null for every miss - unknown,
+    /// revoked, or expired all collapse to null so a holder cannot probe which tokens
+    /// exist. The Api-layer SCIM authentication handler calls this after hashing the
+    /// raw token; the handler mints a tid-scoped, non-resolving principal on a hit and
+    /// 401s on null.
+    /// </summary>
+    Task<Guid?> ResolveScimTokenAsync(string tokenHash, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a SCIM bearer (settings:manage) and returns the raw token ONCE (it is
+    /// never retrievable again). An optional <paramref name="expiresAt"/> caps its
+    /// life. Emits <c>tenancy.scim.token_rotated</c> (no secret on the payload).
+    /// </summary>
+    Task<Result<(Guid Id, string RawToken, string TokenPrefix, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt)>>
+        CreateScimTokenAsync(Guid callerUserId, DateTimeOffset? expiresAt, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists the active tenant's SCIM tokens (settings:manage): id, display prefix,
+    /// and timestamps - NEVER the secret or the hash.
+    /// </summary>
+    Task<IReadOnlyList<(Guid Id, string TokenPrefix, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt)>>
+        ListScimTokensAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Rotates a SCIM token (settings:manage): mints a new secret on the same row and
+    /// returns the new raw token ONCE. The old secret stops resolving immediately.
+    /// Unknown id is a NotFound (<c>tenancy.scim_token_not_found</c>). Emits
+    /// <c>tenancy.scim.token_rotated</c>.
+    /// </summary>
+    Task<Result<(string RawToken, string TokenPrefix)>>
+        RotateScimTokenAsync(Guid callerUserId, Guid tokenId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Revokes a SCIM token (settings:manage): sets revoked_at, so its secret fails to
+    /// resolve on the next request. Idempotent - an already-revoked token is a benign
+    /// success. Unknown id is a NotFound (<c>tenancy.scim_token_not_found</c>).
+    /// </summary>
+    Task<Result> RevokeScimTokenAsync(Guid callerUserId, Guid tokenId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SCIM POST /Users: resolve-or-create the global user (born unverified,
+    /// passwordless, so a later first SSO login claims the shell) and ensure a member
+    /// of the token's tenant with the default member role. Idempotent on
+    /// <paramref name="userName"/> (the email): a repeat provision returns the existing
+    /// member with no duplicate. <paramref name="externalId"/> round-trips on a genuine
+    /// create. <c>Created</c> is true only for a fresh membership. A blank / non-email
+    /// userName is a Validation failure. Emits <c>tenancy.membership.created</c> only on
+    /// a fresh membership.
+    /// </summary>
+    Task<Result<(Guid UserId, string Email, bool Active, string? ExternalId, bool Created)>>
+        ProvisionScimUserAsync(string userName, string? externalId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SCIM GET /Users/{id}: the member view for the token's tenant, or null when no
+    /// such member exists here - including a user who is a member of ANOTHER tenant
+    /// only (RLS makes their membership invisible, so it reads as 404, never a
+    /// cross-tenant confirmation).
+    /// </summary>
+    Task<(Guid UserId, string Email, bool Active, string? ExternalId)?>
+        GetScimUserAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SCIM GET /Users?filter=userName eq "...": resolves the userName (email) to a
+    /// member of the token's tenant, or null. This is the ONLY supported filter; any
+    /// other filter yields an empty list at the endpoint.
+    /// </summary>
+    Task<(Guid UserId, string Email, bool Active, string? ExternalId)?>
+        FindScimUserByUserNameAsync(string userName, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SCIM PUT active / DELETE: flips the member's status in place (Active &lt;-&gt;
+    /// Suspended, a SOFT change preserving the row and grants). <c>active=false</c> and
+    /// DELETE both suspend; <c>active=true</c> reactivates. Idempotent - a no-op when
+    /// already in the target state. Suspending the tenant's last owner is refused
+    /// (<c>tenancy.last_owner</c>). Unknown member is a NotFound. Emits
+    /// <c>tenancy.member.suspended</c> / <c>tenancy.member.reactivated</c> on a genuine
+    /// change.
+    /// </summary>
+    Task<Result<(Guid UserId, string Email, bool Active, string? ExternalId)>>
+        SetScimUserActiveAsync(Guid userId, bool active, CancellationToken cancellationToken);
 }

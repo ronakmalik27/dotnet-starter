@@ -5,6 +5,7 @@ using Starter.Identity.GoogleSignIn;
 using Starter.Identity.Login;
 using Starter.Identity.Mfa;
 using Starter.Identity.PasswordReset;
+using Starter.Identity.Provisioning;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
 using Starter.Identity.SetPassword;
@@ -46,7 +47,8 @@ internal sealed class IdentityApi(
     RegenerateRecoveryCodesHandler regenerateRecoveryCodes,
     SsoStartHandler ssoStart,
     SsoCallbackHandler ssoCallback,
-    UserDirectoryQuery userDirectory) : IIdentityApi
+    UserDirectoryQuery userDirectory,
+    UserProvisioner userProvisioner) : IIdentityApi
 {
     public Task<Result> RegisterAsync(string email, string password, CancellationToken cancellationToken) =>
         register.HandleAsync(email, password, cancellationToken);
@@ -196,4 +198,7 @@ internal sealed class IdentityApi(
 
     public Task<Guid?> FindUserIdByEmailAsync(string email, CancellationToken cancellationToken) =>
         userDirectory.FindUserIdByEmailAsync(email, cancellationToken);
+
+    public Task<Guid> EnsureProvisionedUserAsync(string email, CancellationToken cancellationToken) =>
+        userProvisioner.EnsureProvisionedUserAsync(email, cancellationToken);
 }

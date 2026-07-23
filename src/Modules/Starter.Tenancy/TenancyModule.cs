@@ -6,6 +6,7 @@ using Starter.Tenancy.ControlPlane;
 using Starter.Tenancy.Dsar;
 using Starter.Tenancy.Invitations;
 using Starter.Tenancy.Rbac;
+using Starter.Tenancy.Scim;
 using Starter.Tenancy.ServiceAccounts;
 using Starter.Tenancy.Sso;
 using Starter.Platform.Auth;
@@ -103,6 +104,10 @@ public static class TenancyModule
         // bypass-containment arch test.
         services.AddScoped<TenantSsoConfigReader>();
         services.AddScoped<SsoMembershipProvisioner>();
+        // SCIM (sso-and-scim.md section 5): the token RESOLVER is the ONLY new
+        // cross-tenant bypass-path slice this increment adds (a scim_ bearer holds no
+        // tid until it resolves one), allowlisted by the bypass-containment arch test.
+        services.AddScoped<ScimTokenResolver>();
 
         // Request-path (RLS-bound) slices.
         services.AddScoped<TenantRoleResolver>();
@@ -118,6 +123,11 @@ public static class TenancyModule
         // registered by AddPlatformDataProtection, so it stays module-boundary clean).
         services.AddScoped<SsoConfigService>();
         services.AddScoped<SsoClientSecretProtector>();
+        // The SCIM request-path (RLS-bound) slices: token management (settings:manage)
+        // and the Users CRUD business logic. The Users CRUD reaches the identity
+        // module only through the IUserProvisioner / IUserDirectory platform ports.
+        services.AddScoped<ScimTokenService>();
+        services.AddScoped<ScimProvisioningService>();
 
         services.AddScoped<ITenancyApi, TenancyApi>();
 
@@ -139,6 +149,7 @@ public static class TenancyModule
         services.AddScoped<IDataExportContributor, TenancyExportContributors.ServiceAccounts>();
         services.AddScoped<IDataExportContributor, TenancyExportContributors.SsoConfiguration>();
         services.AddScoped<IDataExportContributor, TenancyExportContributors.SsoDomainClaims>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.ScimTokens>();
         services.AddSingleton<ITenantErasureContributor, TenancyErasureContributor>();
 
         // Bridge the platform-declared role-reader port (used by the layer-3

@@ -79,6 +79,12 @@ public class BypassDataSourceContainmentTests
         "Starter.Tenancy.ControlPlane.TenantSessionPolicyReader",
         "Starter.Tenancy.ControlPlane.TenantSsoConfigReader",
         "Starter.Tenancy.ControlPlane.SsoMembershipProvisioner",
+        // - the SCIM token resolver (a scim_ bearer holds no tid until it resolves one,
+        //   so the tenant-less token_hash lookup crosses the boundary, exactly like the
+        //   API-key resolver - sso-and-scim.md section 5). The SCIM Users CRUD itself
+        //   runs RLS-bound on the request path, so ScimProvisioningService and
+        //   ScimTokenService stay BANNED; the resolver is the only new bypass slice.
+        "Starter.Tenancy.ControlPlane.ScimTokenResolver",
     ];
 
     [Fact]

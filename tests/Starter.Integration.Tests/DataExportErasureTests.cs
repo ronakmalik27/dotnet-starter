@@ -227,7 +227,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         var cancellationToken = TestContext.Current.CancellationToken;
 
         // The completeness mechanism is real (not vacuous): reflection over the
-        // ITenantOwned types finds the [Sensitive] columns - the three known today.
+        // ITenantOwned types finds the [Sensitive] columns - the four known today.
         var assemblies = fixture.Factory.Services.GetServices<ITenantErasureContributor>()
             .Select(contributor => contributor.GetType().Assembly)
             .Append(typeof(ITenantErasureContributor).Assembly);
@@ -236,6 +236,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         sensitive.ShouldContain("key_hash");
         sensitive.ShouldContain("signing_secret_encrypted");
         sensitive.ShouldContain("client_secret_encrypted");
+        sensitive.ShouldContain("token_hash");
 
         var admin = await PlatformWorkflow.SignupPlatformAdminAsync(fixture, cancellationToken);
         var owner = await TenantWorkflow.SignupOwnerAsync(fixture, cancellationToken);
@@ -244,6 +245,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         var keyHash = KeyHashSentinel(owner.TenantId);
         var webhookSecret = WebhookSecretSentinel(owner.TenantId);
         var ssoSecret = SsoClientSecretSentinel(owner.TenantId);
+        var scimHash = ScimTokenHashSentinel(owner.TenantId);
 
         // The export bundle carries the shaped sections but never the secret values.
         var export = await TenantWorkflow.GetAsync(fixture, "/api/v1/tenant/export", owner.Token, cancellationToken);
@@ -252,6 +254,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         bundle.ShouldNotContain(keyHash);
         bundle.ShouldNotContain(webhookSecret);
         bundle.ShouldNotContain(ssoSecret);
+        bundle.ShouldNotContain(scimHash);
 
         // The operator snapshot captures the raw rows (secret columns present but
         // REDACTED), never the secret values.
@@ -264,10 +267,12 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         snapshot.ShouldNotContain(keyHash);
         snapshot.ShouldNotContain(webhookSecret);
         snapshot.ShouldNotContain(ssoSecret);
+        snapshot.ShouldNotContain(scimHash);
         // The snapshot did capture those tables and redacted the secret columns by name.
         snapshot.ShouldContain("service_accounts");
         snapshot.ShouldContain("webhook_endpoints");
         snapshot.ShouldContain("sso_configs");
+        snapshot.ShouldContain("scim_tokens");
         snapshot.ShouldContain("[REDACTED]");
     }
 
@@ -367,6 +372,20 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
             cancellationToken,
             ("t", owner.TenantId),
             ("secret", EncryptSsoSecret(SsoClientSecretSentinel(owner.TenantId))));
+
+        // A tenancy.scim_tokens row whose token_hash is the fourth [Sensitive] column:
+        // seed a per-tenant sentinel so a leak of the hash into the export bundle or
+        // the operator snapshot is detectable.
+        await PlatformWorkflow.ExecuteAsync(
+            fixture,
+            "insert into tenancy.scim_tokens "
+            + "(id, tenant_id, token_hash, token_prefix, created_by, created_at) "
+            + "values (@id, @t, @hash, 'scim_seed', @u, now())",
+            cancellationToken,
+            ("id", Guid.CreateVersion7()),
+            ("t", owner.TenantId),
+            ("hash", ScimTokenHashSentinel(owner.TenantId)),
+            ("u", owner.UserId));
     }
 
     // --- helpers ---------------------------------------------------------
@@ -376,6 +395,8 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
     private static string WebhookSecretSentinel(Guid tenantId) => $"SENTINEL_WEBHOOKSECRET_{tenantId:N}";
 
     private static string SsoClientSecretSentinel(Guid tenantId) => $"SENTINEL_SSOSECRET_{tenantId:N}";
+
+    private static string ScimTokenHashSentinel(Guid tenantId) => $"SENTINEL_SCIMHASH_{tenantId:N}";
 
     /// <summary>
     /// Encrypts an SSO client-secret sentinel with the host's own DataProtection

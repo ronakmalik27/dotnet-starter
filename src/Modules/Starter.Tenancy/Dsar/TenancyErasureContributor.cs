@@ -30,6 +30,10 @@ internal sealed class TenancyErasureContributor : ITenantErasureContributor
         // operator snapshot by the reflection-driven completeness mechanism.
         new("tenancy.sso_configs", "tenant_id"),
         new("tenancy.sso_domain_claims", "tenant_id"),
+        // SCIM tokens (sso-and-scim.md section 5): tenant-owned, no FK into the rest of
+        // the set. token_hash is [Sensitive] - redacted in the operator snapshot by the
+        // same reflection-driven completeness mechanism.
+        new("tenancy.scim_tokens", "tenant_id"),
         new("tenancy.memberships", "tenant_id"),
         new("tenancy.workspaces", "tenant_id"),
         // The tenant boundary itself, keyed on its own id, deleted LAST.

@@ -28,6 +28,15 @@ internal sealed class Membership : ITenantOwned
     /// <summary>The user who invited this member, or null for a self-serve owner.</summary>
     public Guid? InvitedBy { get; init; }
 
+    /// <summary>
+    /// The IdP's SCIM <c>externalId</c> for this member, or null when the membership
+    /// was not directory-provisioned (sso-and-scim.md section 5). It rounds a SCIM
+    /// client's stable per-user handle back on GET/PUT so reconciliation lines up.
+    /// Per-(tenant, user), so it belongs on the membership, not the global user. Not
+    /// a secret - included in the membership DSAR export like the other columns.
+    /// </summary>
+    public string? ScimExternalId { get; set; }
+
     public required DateTimeOffset CreatedAt { get; init; }
 }
 

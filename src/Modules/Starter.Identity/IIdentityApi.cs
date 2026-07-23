@@ -11,13 +11,14 @@ namespace Starter.Identity;
 /// types only: the module exports no other public type (ModuleSurfaceTests).
 /// <para>
 /// It inherits <see cref="ITenantProvisioningIdentity"/> (the platform-declared
-/// staging / verification-email / session-issue seam) and
-/// <see cref="IUserDirectory"/> (the minimal user-lookup seam the tenancy invite
-/// and accept flows read), so those modules depend on the platform ports without
-/// referencing this one. The composition root registers the same instance for all.
+/// staging / verification-email / session-issue seam), <see cref="IUserDirectory"/>
+/// (the minimal user-lookup seam the tenancy invite and accept flows read), and
+/// <see cref="IUserProvisioner"/> (the resolve-or-create seam the tenancy SCIM flow
+/// uses), so those modules depend on the platform ports without referencing this
+/// one. The composition root registers the same instance for all.
 /// </para>
 /// </summary>
-public interface IIdentityApi : ITenantProvisioningIdentity, IUserDirectory
+public interface IIdentityApi : ITenantProvisioningIdentity, IUserDirectory, IUserProvisioner
 {
     /// <summary>
     /// Registration. Success is deliberately empty and

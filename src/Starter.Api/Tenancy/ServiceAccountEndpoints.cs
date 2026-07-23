@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Starter.Api.Platform;
 using Starter.Tenancy;
 using Starter.Platform.Auth;
 using Starter.Platform.Http;
@@ -32,9 +33,17 @@ public static class ServiceAccountEndpoints
             .RequireTenant()
             .RequireAuthorization();
 
-        accounts.MapPost("/", CreateAsync).RequirePermission(Permissions.ApiKeysManage);
+        // Create and rotate MINT a standing credential, so they are refused under an
+        // impersonation token (a support session must not leave a persistence vector -
+        // the same guard the SCIM token create/rotate carries; sso-and-scim.md
+        // Decision 5). List and revoke are not minting acts, so they are not blocked.
+        accounts.MapPost("/", CreateAsync)
+            .RequirePermission(Permissions.ApiKeysManage)
+            .BlockUnderImpersonation();
         accounts.MapGet("/", ListAsync).RequirePermission(Permissions.ApiKeysManage);
-        accounts.MapPost("/{id:guid}/rotate", RotateAsync).RequirePermission(Permissions.ApiKeysManage);
+        accounts.MapPost("/{id:guid}/rotate", RotateAsync)
+            .RequirePermission(Permissions.ApiKeysManage)
+            .BlockUnderImpersonation();
         accounts.MapDelete("/{id:guid}", RevokeAsync).RequirePermission(Permissions.ApiKeysManage);
 
         return app;

@@ -91,9 +91,17 @@ miss (section 3), not merely a policy expectation.
 |---|---|---|
 | `id` | uuid | PK |
 | `tenant_id` | uuid not null | the RLS discriminator |
-| `token_hash` | text not null | SHA-256 of the SCIM bearer token (`scim_`-prefixed, shown once), globally-unique index for the tenant-less lookup - the API-key pattern (service-accounts.md) |
+| `token_hash` | text not null | SHA-256 of the SCIM bearer token (`scim_`-prefixed, 256-bit, shown once), globally-unique index for the tenant-less lookup - the API-key pattern (service-accounts.md); `[Sensitive]` |
+| `token_prefix` | text not null | the first chars of the raw token, in clear for display (never the secret), replaced on rotate |
 | `created_by` / `created_at` | | |
+| `expires_at` | timestamptz null | optional expiry; a token past it fails to resolve |
 | `revoked_at` | timestamptz null | rotate/revoke |
+
+`tenancy.memberships` gains a nullable `scim_external_id text` column: the IdP's SCIM
+`externalId` for a directory-provisioned member, round-tripped on GET/PUT so a SCIM
+client's reconciliation lines up. It is per-(tenant, user), so it belongs on the
+membership, not the global user, and it is not a secret (it rides the membership DSAR
+export like the other columns).
 
 - Both are tenant-owned under RLS (a tenant's SSO config and SCIM token are its own).
   The `client_secret` and `token_hash` are the two `[Sensitive]` columns this
@@ -189,42 +197,86 @@ Authorization-code flow, per tenant, reusing the Google-OIDC validator generaliz
 
 ## 5. SCIM 2.0 provisioning (the skeleton)
 
-- `/scim/v2/Users` under a dedicated SCIM auth scheme: the `Authorization: Bearer
-  scim_...` token resolves (by `token_hash`, tenant-less lookup like the API key) to
-  the tenant, and every SCIM operation runs scoped to THAT tenant. Not the JWT scheme;
-  a forwarding selector routes `scim_`-prefixed bearers to the SCIM handler (the
-  api-key-scheme pattern, service-accounts.md).
+- **The dedicated SCIM auth scheme, CONFINED to `/scim/v2`.** An `Authorization:
+  Bearer scim_...` token resolves (by `token_hash`, tenant-less lookup like the API
+  key) to its tenant, and every SCIM operation runs scoped to THAT tenant on the
+  RLS request path (the resolved `tid` is bound by `TenantResolutionMiddleware`, so
+  the Users CRUD rides the normal RLS-bound path; only the token RESOLVER is a
+  tenant-less bypass slice). A `scim_` bearer must authenticate ONLY `/scim/v2` and
+  must NEVER become a general tenant-admin credential. Four controls enforce that
+  together: (1) the forwarding selector routes a request to the SCIM scheme ONLY when
+  it carries the `scim_` bearer shape AND its path starts with `/scim/v2` - a `scim_`
+  bearer on any other path falls through to JWT and gets a 401; (2) the `/scim/v2`
+  endpoint group is pinned with an authorization policy that accepts ONLY the SCIM
+  scheme, even if the selector were ever misconfigured; (3) the SCIM handler mints a
+  NON-resolving principal - `tid` (the resolved tenant), a distinct `pt=scim`, and a
+  synthetic `sub` that corresponds to NO real user - so it never resolves through the
+  RBAC permission/role resolvers, and possession of the `tid`-scoped bearer IS the
+  authority for the SCIM surface (the Users routes carry no `RequirePermission`); (4)
+  a regression test proves a valid SCIM token gets 401/403 on non-SCIM tenant routes
+  (including `/api/v1/tenant/notifications`) and works on `/scim/v2/Users`.
+- The global user is resolved-or-created through a Platform port,
+  `IUserProvisioner` (Identity implements, Tenancy consumes - the
+  `ITenantSsoProvisioner` bridge in reverse, so Identity and Tenancy never reference
+  each other). **A SCIM-provisioned user is born UNVERIFIED and passwordless.** That
+  is load-bearing: the tenant member's first real SSO login then claims the shell
+  through the existing account-linking table (`ClaimUnverifiedAccount`) with no new
+  code path, whereas a user born verified would resolve to `ConfirmationRequired`
+  (409) and lock the member out of their own shell.
 - Core operations mapping SCIM Users to tenant memberships:
-  - `POST /Users` (provision): create-or-invite a member of the tenant from the SCIM
-    user (userName = email, active). Idempotent on the external id / email.
+  - `POST /Users` (provision): resolve-or-create the global user, then ensure a member
+    of the token's tenant (default member role). Idempotent on `userName` (the email):
+    a repeat returns the existing member with no duplicate; `externalId` round-trips on
+    a genuine create. Emits `tenancy.membership.created` only on a fresh membership.
   - `GET /Users/{id}` and `GET /Users?filter=userName eq "..."` (the ONE filter SCIM
     clients require for reconciliation; broader filtering is grow-into): return the
-    SCIM User resource shape for a member.
-  - `PUT /Users/{id}` (replace) and the `active` flag: `active=false` DEACTIVATES the
-    member - the same member-deactivation path an admin removal drives
-    (multi-tenancy.md section 20), which is the WHOLE POINT of SCIM (a directory
-    offboard immediately cuts tenant access). `active=true` reactivates.
-  - `DELETE /Users/{id}`: deactivate (soft), not a hard delete (audit).
+    SCIM User resource for a member of the token's tenant. A user who is a member of
+    ANOTHER tenant only is invisible under RLS and reads as 404 (no cross-tenant
+    confirmation). Any other filter is an empty ListResponse (never a general parser).
+  - `PUT /Users/{id}` and the `active` flag: `active=false` DEACTIVATES the member -
+    a genuine SOFT status flip (Active -> Suspended) preserving the row, role,
+    role assignments, and team memberships, which is the WHOLE POINT of SCIM (a
+    directory offboard immediately cuts tenant access - the authorization resolvers
+    already fail closed on any non-Active status). `active=true` reactivates. Only
+    `active` is honored; a PUT never changes the email (it would re-key the global
+    user) and never processes `roles` / `groups` / `entitlements`.
+  - `DELETE /Users/{id}`: deactivate (soft, -> Suspended), NOT a hard delete (audit).
+  - Suspend and reactivate are idempotent no-ops when already in the target state
+    (directory syncs retry relentlessly), and suspend is guarded against the tenant's
+    last owner (a SCIM error, never a 500 or a lockout).
 - The response bodies are the standard SCIM 2.0 `urn:ietf:params:scim:schemas:core:2.0:User`
-  shape (id, userName, active, emails, meta) so a real Okta/Azure-AD SCIM client
-  interoperates. `PATCH` (partial ops), `/Groups` (-> teams), bulk, and full filtering
-  are documented grow-into (section 8) - the skeleton is the resource shape + the CRUD +
-  the deactivate-drives-offboarding link, which is the load-bearing behavior.
-- SCIM provisioning is a control-plane write on the tenant; it runs on the request
-  path under the SCIM token's resolved tenant (RLS), reusing the invitation /
-  membership machinery, and emits the existing `tenancy.membership.*` events (so it is
-  audited and webhook-deliverable with no new event).
+  shape (`schemas`, `id` = our global user guid, `userName`, `active`, `emails`,
+  `externalId`, `meta`) so a real Okta/Azure-AD SCIM client interoperates, and errors
+  use the SCIM error envelope (`urn:ietf:params:scim:api:messages:2.0:Error`), a
+  DELIBERATE deviation from the app's RFC 9457 shape scoped ONLY to `/scim/v2`.
+  `PATCH` (partial ops), `/Groups` (mapped to teams), bulk, discovery, complex
+  filtering, and SCIM-driven role assignment are documented grow-into (section 8) - the skeleton is
+  the resource shape + the CRUD + the deactivate-drives-offboarding link, which is the
+  load-bearing behavior. An IdP's `roles` / `groups` / `entitlements` attributes are
+  IGNORED by construction (the request DTO does not bind them), closing a
+  privilege-escalation vector smuggled through a deferred feature.
+- The SCIM token itself is managed through the tenant-admin API
+  (`/api/v1/tenant/scim/tokens`), gated `RequirePermission(settings:manage)` - the same
+  enterprise-integration admin surface as the SSO config, no new permission atom:
+  create (mint + return the raw token ONCE), list (prefixes + metadata only, never the
+  hash), rotate (mint a new secret on the same row, the old stops resolving), and
+  revoke (idempotent). Create and rotate are refused under an impersonation token
+  (minting a standing bearer under a support session is a persistence vector); the same
+  hardening is applied to the existing service-account create/rotate in the same pass.
 
 ## 6. Events and audit
 
-- SSO config changes and SCIM-token rotation are tenant-admin actions on the existing
-  settings/audited surface (`tenancy.tenant.settings_updated` or dedicated
-  `tenancy.sso.configured` / `tenancy.scim.token_rotated` tenant-scoped events on the
-  deliverable catalogue - audited + webhook-deliverable). An SSO SIGN-IN reuses the
+- SSO config changes are a tenant-admin action on the existing settings/audited
+  surface, emitting the dedicated `tenancy.sso.configured` tenant-scoped event on the
+  deliverable catalogue (audited + webhook-deliverable). An SSO SIGN-IN reuses the
   existing session/login events; a JIT provision emits `tenancy.membership.created`.
-- SCIM provision/deprovision emit the existing `tenancy.membership.created` /
-  member-deactivated events, so the audit log and webhooks cover the directory-driven
-  changes with no new plumbing.
+- SCIM adds THREE tenant-scoped events to the deliverable catalogue (audited AND
+  webhook-deliverable): `tenancy.scim.token_rotated` (create/rotate of a SCIM bearer,
+  no secret on the payload), `tenancy.member.suspended` (a deprovision - PUT
+  active=false or DELETE), and `tenancy.member.reactivated` (PUT active=true). A fresh
+  provision emits the existing `tenancy.membership.created`. A directory offboard
+  cutting tenant access is exactly the change a security team wants on the record, so
+  suspend/reactivate are their own events rather than folded into the removal event.
 
 ## 7. Placement and deletability
 
@@ -232,11 +284,14 @@ Authorization-code flow, per tenant, reusing the Google-OIDC validator generaliz
   per-tenant config through a Platform port (the `ITenantSessionPolicyReader` seam
   from increment 16b - Identity must not reference Tenancy directly; a new
   `ITenantSsoConfigReader` Platform port that Tenancy implements). The SCIM endpoints
-  live in the Api layer over the Tenancy membership surface.
-- Deletable: drop `tenancy.sso_configs` + `tenancy.scim_tokens` + their migration, the
-  SSO start/callback endpoints + the `sso` auth-method kind, the SCIM endpoints + auth
-  scheme, and the two erasure-declaration + `[Sensitive]` entries. First-party login
-  (password / Google) is untouched.
+  live in the Api layer over the Tenancy membership surface, and the SCIM Users CRUD
+  reaches Identity ONLY through the `IUserProvisioner` / `IUserDirectory` Platform
+  ports (Identity implements, Tenancy consumes), so the module boundary holds.
+- Deletable: drop `tenancy.sso_configs` + `tenancy.scim_tokens` + their migrations, the
+  `memberships.scim_external_id` column, the SSO start/callback endpoints + the `sso`
+  auth-method kind, the SCIM endpoints + auth scheme + token-management surface, the
+  `IUserProvisioner` port, and the erasure-declaration + `[Sensitive]` entries for both
+  new secret columns. First-party login (password / Google) is untouched.
 
 ## 8. Deferred (documented grow-into, not built)
 

@@ -592,4 +592,71 @@ internal static class TenancyEvents
             ActorUserId = actorUserId,
             Payload = JsonSerializer.Serialize(new { }, Json),
         };
+
+    /// <summary>
+    /// tenancy.scim.token_rotated: an admin rotated (or a SCIM rotate minted) a new
+    /// SCIM bearer, so the old secret stopped resolving immediately (sso-and-scim.md
+    /// section 5). Actor is the admin; no payload beyond the entity - the new token is
+    /// never on the payload (mirrors ServiceAccountRotated).
+    /// </summary>
+    public static DomainEventRecord ScimTokenRotated(
+        Guid scimTokenId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.scim.token_rotated",
+            EntityId = scimTokenId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.member.suspended: a member was deactivated (Active -> Suspended),
+    /// preserving the row and its grants (sso-and-scim.md section 5). A SCIM
+    /// deprovision (PUT active=false or DELETE) drives it, the same soft
+    /// member-deactivation an admin offboard would. Actor is the caller when a human
+    /// drives it, and null when a directory sync does (SCIM has no interactive actor -
+    /// the same null-actor pattern as identity.user.registered); the affected user
+    /// always rides the payload.
+    /// </summary>
+    public static DomainEventRecord MemberSuspended(
+        Guid membershipId,
+        Guid userId,
+        Guid? actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.member.suspended",
+            EntityId = membershipId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { userId }, Json),
+        };
+
+    /// <summary>
+    /// tenancy.member.reactivated: a suspended member was reactivated
+    /// (Suspended -> Active), restoring their resolved access (sso-and-scim.md section
+    /// 5). A SCIM PUT active=true drives it. Actor is the caller when a human drives it,
+    /// and null when a directory sync does (SCIM has no interactive actor - the same
+    /// null-actor pattern as identity.user.registered); the affected user always rides
+    /// the payload.
+    /// </summary>
+    public static DomainEventRecord MemberReactivated(
+        Guid membershipId,
+        Guid userId,
+        Guid? actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.member.reactivated",
+            EntityId = membershipId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { userId }, Json),
+        };
 }

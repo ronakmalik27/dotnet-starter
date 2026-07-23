@@ -470,6 +470,17 @@ if (postgres is not null)
     // A service account is a non-human principal that authenticates with its key
     // (Authorization: Bearer sk_...) and carries scoped grants, not a membership.
     app.MapServiceAccountEndpoints();
+    // The SCIM-token management plane (sso-and-scim.md section 5): create, list,
+    // rotate, and revoke the per-tenant SCIM bearer, over the active tenant
+    // (/api/v1/tenant/scim/tokens) and gated by RequirePermission(settings:manage).
+    // The bearer it mints authenticates the SEPARATE /scim/v2 surface below.
+    app.MapScimTokenEndpoints();
+    // The SCIM 2.0 Users provisioning seam (sso-and-scim.md section 5): POST/GET/PUT/
+    // DELETE /scim/v2/Users, group-PINNED to the Scim auth scheme so ONLY a scim_
+    // bearer authenticates it - a scim_ token can never reach the tenant-admin routes
+    // above, and a JWT can never reach this one. Maps SCIM Users onto tenant
+    // memberships (create-or-ensure, soft deactivate) with the SCIM error envelope.
+    app.MapScimEndpoints();
     // The webhook control plane (webhooks.md section 7): register, list, update, rotate,
     // delete, delivery log, and replay, all over the active tenant
     // (/api/v1/tenant/webhooks) and gated by RequirePermission(webhooks:manage).
