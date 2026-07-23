@@ -112,6 +112,7 @@ public static class TenancyModule
         // Request-path (RLS-bound) slices.
         services.AddScoped<TenantRoleResolver>();
         services.AddScoped<PermissionResolver>();
+        services.AddScoped<ConditionalGrantResolver>();
         services.AddScoped<CustomRoleService>();
         services.AddScoped<WorkspaceService>();
         services.AddScoped<TeamService>();
@@ -163,6 +164,14 @@ public static class TenancyModule
         // drift, and the platform never references this module.
         services.AddScoped<IPermissionResolver>(
             provider => provider.GetRequiredService<PermissionResolver>());
+
+        // Bridge the platform-declared conditional-grant-resolver port (the ABAC
+        // Tier-2 seam the RequirePermission gate consults on a Tier-1 miss) to the
+        // request-path resolver, mirroring the permission-resolver bridge: one
+        // resolver, no drift, and the platform never references this module
+        // (abac.md sections 5, 8).
+        services.AddScoped<IConditionalGrantResolver>(
+            provider => provider.GetRequiredService<ConditionalGrantResolver>());
 
         // Bridge the platform-declared workspace-reader port (used by the
         // RequireWorkspace gate) to the request-path workspace service, so the

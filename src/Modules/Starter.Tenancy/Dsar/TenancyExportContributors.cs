@@ -202,7 +202,7 @@ internal static class TenancyExportContributors
         }
     }
 
-    /// <summary>The tenant's role assignments (grants).</summary>
+    /// <summary>The tenant's role assignments (grants), including the ABAC condition (tenant policy, not a secret).</summary>
     internal sealed class RoleAssignments(TenancyDbContext db) : IDataExportContributor
     {
         public string Section => "roleAssignments";
@@ -222,6 +222,9 @@ internal static class TenancyExportContributors
                     row.PrincipalId,
                     row.ScopeType,
                     row.ScopeId,
+                    // The ABAC condition is tenant policy config, NOT a secret
+                    // (abac.md sections 2, 8), so it belongs in the tenant export.
+                    row.Condition,
                     row.GrantedBy,
                     row.CreatedAt,
                 })

@@ -384,13 +384,18 @@ internal static class TenancyEvents
     /// <summary>
     /// tenancy.role_assignment.granted: a custom role was granted to a principal
     /// at a scope. Actor is the granter; the role and the principal ride the
-    /// payload (ids only).
+    /// payload (ids only). <paramref name="conditionType"/> is the ABAC condition
+    /// kind (e.g. "ip_cidr") when the grant carries a condition, or null for an
+    /// ordinary unconditional grant (abac.md section 6): the log and webhook
+    /// subscribers record THAT a conditional grant was created and of what kind,
+    /// without dumping the full policy - the raw condition is never on the event.
     /// </summary>
     public static DomainEventRecord RoleAssignmentGranted(
         Guid assignmentId,
         Guid roleId,
         Guid principalId,
         Guid actorUserId,
+        string? conditionType,
         DateTimeOffset now) => new()
         {
             Id = Ids.NewId(now),
@@ -399,7 +404,7 @@ internal static class TenancyEvents
             EventType = "tenancy.role_assignment.granted",
             EntityId = assignmentId,
             ActorUserId = actorUserId,
-            Payload = JsonSerializer.Serialize(new { roleId, principalId }, Json),
+            Payload = JsonSerializer.Serialize(new { roleId, principalId, conditionType }, Json),
         };
 
     /// <summary>tenancy.role_assignment.revoked: a custom-role grant was revoked from a principal.</summary>

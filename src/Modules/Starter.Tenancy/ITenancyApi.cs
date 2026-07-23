@@ -567,7 +567,12 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// tenancy.workspace_role_scope), that a named workspace exists, and that the
     /// principal exists in this tenant (a user principal is an active member; a
     /// team principal is a real team). Returns the new assignment id. A duplicate
-    /// grant at the same scope is a Conflict.
+    /// grant at the same scope is a Conflict. <paramref name="condition"/> is the
+    /// optional ABAC condition envelope (abac.md section 6): null is the ordinary
+    /// unconditional grant; a non-null value is validated at write time (a
+    /// malformed payload is a Validation failure, <c>tenancy.condition_invalid</c>)
+    /// and the grant's permissions then count only for a request whose attributes
+    /// satisfy the condition.
     /// </summary>
     Task<Result<Guid>> AssignRoleAsync(
         Guid callerUserId,
@@ -576,17 +581,23 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
         Guid principalId,
         string scopeType,
         Guid? scopeId,
+        string? condition,
         CancellationToken cancellationToken);
 
     /// <summary>Revokes a role assignment by id (roles:manage). Unknown id is a NotFound.</summary>
     Task<Result> RevokeAssignmentAsync(Guid callerUserId, Guid assignmentId, CancellationToken cancellationToken);
 
-    /// <summary>Lists the active tenant's role assignments across all scopes (roles:manage).</summary>
-    Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+    /// <summary>
+    /// Lists the active tenant's role assignments across all scopes (roles:manage).
+    /// The trailing <c>Condition</c> is the grant's raw ABAC condition JSON (null =
+    /// unconditional), so the admin control plane can see which grants are
+    /// conditional and render them (abac.md section 6).
+    /// </summary>
+    Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, string? Condition, DateTimeOffset CreatedAt)>>
         ListAssignmentsAsync(CancellationToken cancellationToken);
 
-    /// <summary>Lists a workspace's role assignments (roles:manage at that workspace).</summary>
-    Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+    /// <summary>Lists a workspace's role assignments (roles:manage at that workspace); the trailing <c>Condition</c> is the grant's raw ABAC condition JSON (null = unconditional).</summary>
+    Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, string? Condition, DateTimeOffset CreatedAt)>>
         ListWorkspaceAssignmentsAsync(Guid workspaceId, CancellationToken cancellationToken);
 
     // --- Teams (active tenant, request path under RLS) --------------------

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Starter.Tenancy.Domain;
 using Starter.Platform.Auth;
+using Starter.Platform.Auth.Conditions;
 using Starter.Platform.Events;
 using Starter.Platform.Tenancy;
 using Starter.SharedKernel;
@@ -24,6 +25,7 @@ internal sealed class CustomRoleService(
     ITenantContext tenant,
     OutboxWriter outbox,
     IEntitlementSource entitlements,
+    ConditionEvaluatorRegistry conditions,
     Clock clock)
 {
     // --- Roles ------------------------------------------------------------
@@ -452,6 +454,7 @@ internal sealed class CustomRoleService(
         Guid principalId,
         string scopeType,
         Guid? scopeId,
+        string? condition,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(principalType);
@@ -485,7 +488,7 @@ internal sealed class CustomRoleService(
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         var result = await AssignRoleCoreAsync(
-            callerUserId, roleId, principalType, principalId, scopeType, normalizedScopeId, now, cancellationToken);
+            callerUserId, roleId, principalType, principalId, scopeType, normalizedScopeId, condition, now, cancellationToken);
         if (result.IsFailure)
         {
             // Dispose (below) rolls back; nothing was committed.
@@ -507,7 +510,11 @@ internal sealed class CustomRoleService(
     /// refusal rolls the whole create back (service-accounts.md section 4). The
     /// shape checks (principal type, scope kind, scope-id presence) are the
     /// caller's; this validates against tenant data. <paramref name="scopeId"/> is
-    /// already normalized (null for tenant scope).
+    /// already normalized (null for tenant scope). <paramref name="condition"/> is
+    /// the optional ABAC condition envelope (abac.md section 6): when non-null it is
+    /// validated through the registry BEFORE the insert (a malformed payload is
+    /// <c>tenancy.condition_invalid</c> and writes no row) and stored on the grant,
+    /// and its parsed type rides the audit event.
     /// </summary>
     internal async Task<Result<Guid>> AssignRoleCoreAsync(
         Guid callerUserId,
@@ -516,9 +523,28 @@ internal sealed class CustomRoleService(
         Guid principalId,
         string scopeType,
         Guid? scopeId,
+        string? condition,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        // Validate the ABAC condition at grant time (abac.md section 6): an unknown
+        // type or a malformed payload (a bad CIDR, a non-HH:mm time) is rejected
+        // here rather than becoming a silent never-satisfied grant. The parsed type
+        // rides the audit event; the raw condition is stored on the row. This runs
+        // before any DB read or the insert, so a bad condition writes nothing.
+        string? conditionType = null;
+        if (condition is not null)
+        {
+            try
+            {
+                conditionType = conditions.Validate(condition);
+            }
+            catch (ConditionFormatException)
+            {
+                return Result.Failure<Guid>(ConditionInvalid);
+            }
+        }
+
         var role = await db.Roles
             .AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == roleId, cancellationToken);
@@ -674,6 +700,7 @@ internal sealed class CustomRoleService(
             ScopeId = scopeId,
             GrantedBy = callerUserId,
             CreatedAt = now,
+            Condition = condition,
         };
         db.RoleAssignments.Add(assignmentRow);
 
@@ -688,7 +715,8 @@ internal sealed class CustomRoleService(
 
         await outbox.EnqueueAsync(
             db,
-            TenancyEvents.RoleAssignmentGranted(assignmentRow.Id, roleId, principalId, callerUserId, now),
+            TenancyEvents.RoleAssignmentGranted(
+                assignmentRow.Id, roleId, principalId, callerUserId, conditionType, now),
             cancellationToken);
 
         return Result.Success(assignmentRow.Id);
@@ -719,17 +747,17 @@ internal sealed class CustomRoleService(
         return Result.Success();
     }
 
-    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, string? Condition, DateTimeOffset CreatedAt)>>
         ListAssignmentsAsync(CancellationToken cancellationToken) =>
         // The tenant roster lists every assignment (tenant- and workspace-scoped)
         // so an admin sees the full grant picture.
         ListAssignmentsAsync(workspaceId: null, cancellationToken);
 
-    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, string? Condition, DateTimeOffset CreatedAt)>>
         ListWorkspaceAssignmentsAsync(Guid workspaceId, CancellationToken cancellationToken) =>
         ListAssignmentsAsync(workspaceId, cancellationToken);
 
-    private async Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+    private async Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, string? Condition, DateTimeOffset CreatedAt)>>
         ListAssignmentsAsync(Guid? workspaceId, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -754,6 +782,7 @@ internal sealed class CustomRoleService(
                 assignment.PrincipalId,
                 assignment.ScopeType,
                 assignment.ScopeId,
+                assignment.Condition,
                 assignment.CreatedAt,
             })
             .ToListAsync(cancellationToken);
@@ -761,7 +790,7 @@ internal sealed class CustomRoleService(
 
         return rows
             .Select(row => (
-                row.Id, row.RoleId, row.PrincipalType, row.PrincipalId, row.ScopeType, row.ScopeId, row.CreatedAt))
+                row.Id, row.RoleId, row.PrincipalType, row.PrincipalId, row.ScopeType, row.ScopeId, row.Condition, row.CreatedAt))
             .ToList();
     }
 
@@ -781,6 +810,11 @@ internal sealed class CustomRoleService(
 
     private static readonly Error AssignmentExists = new(
         ErrorKind.Conflict, "tenancy.assignment_exists", "That role is already assigned to the principal at this scope.");
+
+    private static readonly Error ConditionInvalid = new(
+        ErrorKind.Validation,
+        "tenancy.condition_invalid",
+        "The grant condition is malformed: an unknown type, or invalid type-specific fields.");
 
     private static readonly Error PermissionNotAutomatable = new(
         ErrorKind.Validation,

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Starter.Platform.Auth.Conditions;
 
 namespace Starter.Platform.Auth;
 
@@ -36,6 +37,17 @@ public static class StarterAuthorization
         // tenant-admin+".
         services.AddScoped<IAuthorizationHandler, TenantAdminResourceAuthorizationHandler>();
         services.AddAuthorization();
+
+        // The ABAC condition seam (abac.md sections 4, 8): the two built-in
+        // evaluators and the registry that dispatches to them, all stateless once
+        // frozen, so singletons. A real policy engine (Cedar, OPA) registers here
+        // as ONE more IConditionEvaluator with no other change. The registry is
+        // consumed by the grant path (validation) and the conditional-grant
+        // resolver (live evaluation); the IConditionalGrantResolver bridge itself
+        // is wired in the Tenancy module, which owns the RLS read.
+        services.AddSingleton<IConditionEvaluator, IpCidrConditionEvaluator>();
+        services.AddSingleton<IConditionEvaluator, TimeOfDayConditionEvaluator>();
+        services.AddSingleton<ConditionEvaluatorRegistry>();
         return services;
     }
 }

@@ -175,7 +175,9 @@ internal sealed class InvitationAcceptor(
         {
             await outbox.EnqueueAsync(
                 db,
-                TenancyEvents.RoleAssignmentGranted(assignmentId, grantedRoleId, userId, invitation.InvitedBy, now),
+                // A scope-aware invitation's grant is always unconditional (abac.md section 6).
+                TenancyEvents.RoleAssignmentGranted(
+                    assignmentId, grantedRoleId, userId, invitation.InvitedBy, conditionType: null, now),
                 cancellationToken);
         }
 

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -185,6 +186,9 @@ public static class RoleAdminEndpoints
             // The tenant control plane grants at tenant scope; scope_id is null.
             AssignmentScopes.Tenant,
             scopeId: null,
+            // The optional ABAC condition envelope (abac.md section 6), passed as
+            // raw JSON; the module validates it and 422s a malformed payload.
+            RawCondition(request.Condition),
             cancellationToken);
         return result.Match(
             assignmentId => (IResult)TypedResults.Created((string?)null, new AssignmentCreatedResponse(assignmentId)),
@@ -244,6 +248,30 @@ public static class RoleAdminEndpoints
     private static int PrincipalCount(bool hasUser, bool hasTeam, bool hasServiceAccount) =>
         (hasUser ? 1 : 0) + (hasTeam ? 1 : 0) + (hasServiceAccount ? 1 : 0);
 
+    /// <summary>
+    /// The raw JSON of an assignment request's optional condition, or null when
+    /// absent (abac.md section 6). The module owns validation; this just transports
+    /// the raw envelope. Shared by the tenant- and workspace-scope assign endpoints.
+    /// </summary>
+    internal static string? RawCondition(JsonElement? condition) => condition?.GetRawText();
+
+    /// <summary>
+    /// A stored condition string rendered back as a JSON object for the assignment
+    /// listing (null = unconditional). The value round-trips what write-time
+    /// validation already accepted. Shared by the tenant- and workspace-scope list
+    /// endpoints.
+    /// </summary>
+    internal static JsonElement? ReadCondition(string? condition)
+    {
+        if (condition is null)
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(condition);
+        return document.RootElement.Clone();
+    }
+
     private static async Task<IResult> ListAssignmentsAsync(
         ITenancyApi tenancy, CancellationToken cancellationToken)
     {
@@ -256,6 +284,7 @@ public static class RoleAdminEndpoints
                 assignment.PrincipalId,
                 assignment.ScopeType,
                 assignment.ScopeId,
+                ReadCondition(assignment.Condition),
                 assignment.CreatedAt))
             .ToList();
         return Results.Ok(items);
@@ -294,9 +323,13 @@ public sealed record UpdateRoleRequest(string? Name, string? Description, IReadO
 /// (multi-tenancy.md sections 13, 14; service-accounts.md section 4); the others
 /// stay null. A team grant unions into every team member's effective permissions;
 /// a service-account grant is refused if the role carries a self-escalation
-/// permission (roles:manage / api-keys:manage).
+/// permission (roles:manage / api-keys:manage). The optional
+/// <paramref name="Condition"/> is a raw ABAC condition object (abac.md section 6),
+/// e.g. <c>{ "type": "ip_cidr", "allow": ["203.0.113.0/24"] }</c>; omit it for an
+/// ordinary unconditional grant, and a malformed payload is a 422.
 /// </summary>
-public sealed record AssignRoleRequest(Guid RoleId, Guid? UserId, Guid? TeamId, Guid? ServiceAccountId);
+public sealed record AssignRoleRequest(
+    Guid RoleId, Guid? UserId, Guid? TeamId, Guid? ServiceAccountId, JsonElement? Condition = null);
 
 /// <summary>POST /api/v1/tenant/roles success: the new role's id.</summary>
 public sealed record RoleCreatedResponse(Guid Id);
@@ -318,7 +351,11 @@ public sealed record RoleDetailResponse(
 /// <summary>POST /api/v1/tenant/role-assignments success: the new assignment's id.</summary>
 public sealed record AssignmentCreatedResponse(Guid Id);
 
-/// <summary>GET /api/v1/tenant/role-assignments item.</summary>
+/// <summary>
+/// GET /api/v1/tenant/role-assignments item. <paramref name="Condition"/> is the
+/// grant's raw ABAC condition object (abac.md section 6), or null when the grant is
+/// unconditional, so the admin control plane can see and render conditional grants.
+/// </summary>
 public sealed record AssignmentResponse(
     Guid Id,
     Guid RoleId,
@@ -326,4 +363,5 @@ public sealed record AssignmentResponse(
     Guid PrincipalId,
     string ScopeType,
     Guid? ScopeId,
+    JsonElement? Condition,
     DateTimeOffset CreatedAt);

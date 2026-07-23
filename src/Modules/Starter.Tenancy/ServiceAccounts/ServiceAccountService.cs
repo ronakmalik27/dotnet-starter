@@ -115,6 +115,10 @@ internal sealed class ServiceAccountService(
                 accountId,
                 effectiveScopeType,
                 normalizedScopeId,
+                // The atomic create-with-role path does not carry a condition
+                // (abac.md section 6): a service-account condition is applied via
+                // the ordinary AssignRoleAsync path after creation.
+                condition: null,
                 now,
                 cancellationToken);
             if (assigned.IsFailure)

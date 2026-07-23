@@ -158,6 +158,11 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
         {
             assignment.Property(a => a.PrincipalType).HasMaxLength(16);
             assignment.Property(a => a.ScopeType).HasMaxLength(16);
+            // The optional ABAC condition envelope (abac.md section 2): jsonb, the
+            // established convention for a JSON document column (AuditLogRow.Payload,
+            // PlanRow.Limits). Null = unconditional; the column inherits the table's
+            // RLS + FORCE policy, so nothing new is needed at the policy level.
+            assignment.Property(a => a.Condition).HasColumnType("jsonb");
             // A role in use cannot be deleted (the service guardrail rejects it;
             // Restrict is the database backstop, so a grant never dangles).
             assignment.HasOne<CustomRole>()

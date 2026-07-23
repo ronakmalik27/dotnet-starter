@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Starter.Tenancy;
 using Starter.Platform.Auth;
+using Starter.Platform.Auth.Conditions;
 using Starter.Platform.Data;
 using Starter.Platform.Http;
 using Starter.Platform.Tenancy;
@@ -249,7 +250,12 @@ public static class PermissionGate
 
         var tenancy = http.RequestServices.GetRequiredService<ITenancyApi>();
         var permissions = await tenancy.GetCallerPermissionsAsync(userId.Value, principalType, http.RequestAborted);
-        if (!permissions.Contains(permission))
+
+        // Tier 1: an unconditional grant confers it (unchanged). Tier 2 (the ABAC
+        // seam, abac.md section 5) runs ONLY on a Tier-1 miss, so an RBAC-authorized
+        // caller pays nothing; a genuine denial pays one extra RLS read. Fail closed.
+        if (!permissions.Contains(permission)
+            && !await ConditionalGrantAsync(http, userId.Value, principalType, permission, workspaceId: null))
         {
             return TypedResults.Problem(StarterProblems.PermissionRequired(http));
         }
@@ -286,11 +292,35 @@ public static class PermissionGate
         var tenancy = http.RequestServices.GetRequiredService<ITenancyApi>();
         var permissions = await tenancy.GetCallerPermissionsAsync(
             userId.Value, workspaceId, principalType, http.RequestAborted);
-        if (!permissions.Contains(permission))
+
+        // Tier 1 then, on a miss, the ABAC Tier-2 seam scoped to this workspace: the
+        // resolved workspaceId is passed both into the attribute bag and as the
+        // scope argument (abac.md section 5). Fail closed.
+        if (!permissions.Contains(permission)
+            && !await ConditionalGrantAsync(http, userId.Value, principalType, permission, workspaceId))
         {
             return TypedResults.Problem(StarterProblems.PermissionRequired(http));
         }
 
         return await next(context);
+    }
+
+    /// <summary>
+    /// The ABAC Tier-2 check (abac.md section 5), consulted only on a Tier-1
+    /// (unconditional) miss: assembles the request-attribute bag from the injected
+    /// <see cref="Clock"/> and the connection - layering the resolved workspace on
+    /// for a workspace-scoped check - and asks the <see cref="IConditionalGrantResolver"/>
+    /// whether a conditional grant confers <paramref name="permission"/> under those
+    /// attributes. Fail-closed: the resolver returns false on no such grant, an
+    /// unsatisfied condition, or any evaluation error.
+    /// </summary>
+    private static async ValueTask<bool> ConditionalGrantAsync(
+        HttpContext http, Guid principalId, string principalType, string permission, Guid? workspaceId)
+    {
+        var clock = http.RequestServices.GetRequiredService<Clock>();
+        var conditional = http.RequestServices.GetRequiredService<IConditionalGrantResolver>();
+        var attributes = RequestAttributes.FromHttp(http, clock.UtcNow) with { WorkspaceId = workspaceId };
+        return await conditional.IsGrantedAsync(
+            principalId, principalType, permission, attributes, workspaceId, http.RequestAborted);
     }
 }

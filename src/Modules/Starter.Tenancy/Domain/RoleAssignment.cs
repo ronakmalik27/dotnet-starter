@@ -44,6 +44,16 @@ internal sealed class RoleAssignment : ITenantOwned
     public required Guid GrantedBy { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>
+    /// The optional ABAC condition envelope (abac.md sections 2, 3), stored as
+    /// jsonb. Null = unconditional (every grant today), so the grant behaves
+    /// exactly as it does now. When set, the grant's permissions count only for a
+    /// request whose attributes satisfy the condition, evaluated live at the
+    /// per-request permission check - never memoized into the cached effective set.
+    /// It is tenant policy config, NOT a secret (exported in the tenant DSAR bundle).
+    /// </summary>
+    public string? Condition { get; init; }
 }
 
 /// <summary>tenancy.role_assignments.principal_type values.</summary>

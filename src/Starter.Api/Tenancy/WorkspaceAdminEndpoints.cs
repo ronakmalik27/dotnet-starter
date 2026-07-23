@@ -289,6 +289,9 @@ public static class WorkspaceAdminEndpoints
             principal.PrincipalId,
             AssignmentScopes.Workspace,
             workspaceId,
+            // The optional ABAC condition envelope (abac.md section 6), passed as
+            // raw JSON; the module validates it and 422s a malformed payload.
+            RoleAdminEndpoints.RawCondition(request.Condition),
             cancellationToken);
         return result.Match(
             assignmentId => (IResult)TypedResults.Created((string?)null, new AssignmentCreatedResponse(assignmentId)),
@@ -307,6 +310,7 @@ public static class WorkspaceAdminEndpoints
                 assignment.PrincipalId,
                 assignment.ScopeType,
                 assignment.ScopeId,
+                RoleAdminEndpoints.ReadCondition(assignment.Condition),
                 assignment.CreatedAt))
             .ToList();
         return Results.Ok(items);

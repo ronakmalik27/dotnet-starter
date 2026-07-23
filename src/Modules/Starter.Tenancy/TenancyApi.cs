@@ -342,19 +342,20 @@ internal sealed class TenancyApi(
         Guid principalId,
         string scopeType,
         Guid? scopeId,
+        string? condition,
         CancellationToken cancellationToken) =>
         customRoles.AssignRoleAsync(
-            callerUserId, roleId, principalType, principalId, scopeType, scopeId, cancellationToken);
+            callerUserId, roleId, principalType, principalId, scopeType, scopeId, condition, cancellationToken);
 
     public Task<Result> RevokeAssignmentAsync(
         Guid callerUserId, Guid assignmentId, CancellationToken cancellationToken) =>
         customRoles.RevokeAssignmentAsync(callerUserId, assignmentId, cancellationToken);
 
-    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, string? Condition, DateTimeOffset CreatedAt)>>
         ListAssignmentsAsync(CancellationToken cancellationToken) =>
         customRoles.ListAssignmentsAsync(cancellationToken);
 
-    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, DateTimeOffset CreatedAt)>>
+    public Task<IReadOnlyList<(Guid Id, Guid RoleId, string PrincipalType, Guid PrincipalId, string ScopeType, Guid? ScopeId, string? Condition, DateTimeOffset CreatedAt)>>
         ListWorkspaceAssignmentsAsync(Guid workspaceId, CancellationToken cancellationToken) =>
         customRoles.ListWorkspaceAssignmentsAsync(workspaceId, cancellationToken);
 

@@ -34,6 +34,16 @@ namespace Starter.Tenancy.Rbac;
 /// Resolution is cached per request keyed on (caller, scope) - the resolver is
 /// scoped, and a request resolves at most its tenant set plus one workspace set.
 /// </para>
+/// <para>
+/// Tier 1 of the ABAC seam (abac.md section 5): every grant query filters
+/// <c>condition IS NULL</c>, so the cached effective set is UNCONDITIONAL grants
+/// only. A conditional grant is deliberately kept OUT of this set and evaluated
+/// live by <see cref="ConditionalGrantResolver"/> against the request attributes
+/// each time it is consulted, because caching it under a key that omits those
+/// attributes (clock, IP, resource) would memoize a decision the condition reads.
+/// This filter is the safety hinge: without it a conditional grant would read as
+/// unconditional and be silently always-on.
+/// </para>
 /// </summary>
 internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResolver
 {
@@ -102,6 +112,10 @@ internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResol
             where assignment.ScopeType == AssignmentScope.Tenant
                 && assignment.PrincipalType == PrincipalType.ServiceAccount
                 && assignment.PrincipalId == serviceAccountId
+                // Safety hinge: exclude conditional grants from the cached set
+                // (abac.md section 5). A conditional grant is evaluated live by
+                // ConditionalGrantResolver, never treated as always-on here.
+                && assignment.Condition == null
             join permission in db.RolePermissions.AsNoTracking()
                 on assignment.RoleId equals permission.RoleId
             select permission.Permission)
@@ -120,6 +134,8 @@ internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResol
                     && assignment.ScopeId == scope
                     && assignment.PrincipalType == PrincipalType.ServiceAccount
                     && assignment.PrincipalId == serviceAccountId
+                    // Safety hinge: unconditional grants only (abac.md section 5).
+                    && assignment.Condition == null
                 join permission in db.RolePermissions.AsNoTracking()
                     on assignment.RoleId equals permission.RoleId
                 select permission.Permission)
@@ -189,6 +205,10 @@ internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResol
             where assignment.ScopeType == AssignmentScope.Tenant
                 && ((assignment.PrincipalType == PrincipalType.User && assignment.PrincipalId == userId)
                     || (assignment.PrincipalType == PrincipalType.Team && teamIds.Contains(assignment.PrincipalId)))
+                // Safety hinge: unconditional grants only (abac.md section 5). A
+                // conditional grant stays out of the cached set and is evaluated
+                // live by ConditionalGrantResolver.
+                && assignment.Condition == null
             join permission in db.RolePermissions.AsNoTracking()
                 on assignment.RoleId equals permission.RoleId
             select permission.Permission)
@@ -212,6 +232,8 @@ internal sealed class PermissionResolver(TenancyDbContext db) : IPermissionResol
                     && assignment.ScopeId == scope
                     && ((assignment.PrincipalType == PrincipalType.User && assignment.PrincipalId == userId)
                         || (assignment.PrincipalType == PrincipalType.Team && teamIds.Contains(assignment.PrincipalId)))
+                    // Safety hinge: unconditional grants only (abac.md section 5).
+                    && assignment.Condition == null
                 join permission in db.RolePermissions.AsNoTracking()
                     on assignment.RoleId equals permission.RoleId
                 select permission.Permission)
