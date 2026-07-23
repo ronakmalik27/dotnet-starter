@@ -478,6 +478,18 @@ if (postgres is not null)
         app.MapFeatureFlagGateDemoEndpoints();
     }
 
+    // The usage report (quotas.md section 7): the plan's limits, metered
+    // current-period usage, and resource-count gauges, over the active tenant
+    // (/api/v1/tenant/usage) and gated by seats:read. The RequireQuota metered gate
+    // ships unused on live routes by design; its demonstration route
+    // (/api/v1/tenant/quota-demo, gated RequireQuota("demo_calls")) maps ONLY when
+    // Quotas:DemoEnabled is set (the test host), never in production.
+    app.MapUsageEndpoints();
+    if (builder.Configuration.GetValue<bool>(UsageEndpoints.DemoConfigKey))
+    {
+        app.MapQuotaDemoEndpoints();
+    }
+
     // The workspace-scoped view of the Sample resource
     // (/api/v1/workspaces/{workspaceId}/sample/notes): the worked example of a
     // workspace-scoped resource, gated by notes:read / notes:write at the workspace.

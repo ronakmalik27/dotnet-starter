@@ -57,6 +57,17 @@ internal static class TenancyProblems
             ProblemTypes.PaymentRequired,
             "Your plan does not include this permission.",
             error.Message),
+        // A resource-count quota at its ceiling (quotas.md section 6): the honest
+        // answer is 402 upgrade-or-delete, NOT 429 - waiting frees no slot (a gauge,
+        // not a window). A DISTINCT slug from the metered starter:quota-exceeded
+        // (429), keeping the one-type-one-status contract. Mirrors the
+        // permission_not_in_plan 402 case above.
+        "tenancy.workspace_quota_reached" => Build(
+            http,
+            StatusCodes.Status402PaymentRequired,
+            ProblemTypes.ResourceQuotaReached,
+            "You have reached your plan's workspace limit.",
+            error.Message),
         _ => error.ToProblemResult(http),
     };
 

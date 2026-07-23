@@ -1,10 +1,13 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Starter.Tenancy;
 using Starter.Platform.Auth;
+using Starter.Platform.Data;
 using Starter.Platform.Http;
 using Starter.Platform.Tenancy;
+using Starter.SharedKernel;
 
 namespace Starter.Api.Tenancy;
 
@@ -83,6 +86,39 @@ public static class PermissionGate
     }
 
     /// <summary>
+    /// Declares that the endpoint consumes a METERED usage quota (quotas.md section
+    /// 5): the active tenant's plan limit for <paramref name="metric"/> is resolved,
+    /// then <paramref name="amount"/> is reserved against it. If the reserve breaches
+    /// the ceiling the request short-circuits with 429
+    /// <c>starter:quota-exceeded</c> plus a <c>Retry-After</c> header of the whole
+    /// seconds until the period reset; otherwise it proceeds.
+    /// <para>
+    /// Compose it LAST: AFTER <see cref="RequireTenant"/> (a no-tenant request answers
+    /// 400 first), AFTER <see cref="RequirePermission"/> (an unauthorized caller gets
+    /// 403 first), and AFTER any <see cref="RequireEntitlement"/> (a plan that omits
+    /// the feature answers 402 first). Consuming a quota is the only WRITE in the
+    /// chain, so every cheaper read-only rejection must run first, so a request that
+    /// was always going to be rejected never burns a unit of the tenant's budget.
+    /// </para>
+    /// <para>
+    /// A COMMERCIAL gate, so it FAILS OPEN: an absent limit means the metric is
+    /// unlimited and the gate is a no-op (writes nothing). Enforcement engages only
+    /// once an operator publishes a plan naming a finite limit; a limit of 0 is
+    /// deny-all.
+    /// </para>
+    /// </summary>
+    public static TBuilder RequireQuota<TBuilder>(this TBuilder builder, string metric, int amount = 1)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(metric);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
+
+        return builder.AddEndpointFilterFactory((_, next) =>
+            invocationContext => InvokeQuotaAsync(invocationContext, next, metric, amount));
+    }
+
+    /// <summary>
     /// Declares that the endpoint is gated by a FEATURE FLAG (feature-flags.md
     /// section 4): the flag must resolve ON for the active tenant, else the request
     /// short-circuits with 404 - a not-yet-released feature should look like it does
@@ -144,6 +180,45 @@ public static class PermissionGate
         if (!entitlements.HasFeature(feature))
         {
             return TypedResults.Problem(StarterProblems.PaymentRequired(http));
+        }
+
+        return await next(context);
+    }
+
+    private static async ValueTask<object?> InvokeQuotaAsync(
+        EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next,
+        string metric,
+        int amount)
+    {
+        var http = context.HttpContext;
+
+        // The limit is a property of the ACTIVE tenant's plan, resolved the same way
+        // RequireEntitlement resolves the feature set. Read it with TryGetValue, NEVER
+        // GetLimit (quotas.md section 5): GetLimit returns a non-nullable int and
+        // cannot tell "absent" from "present-with-fallback", which would collapse an
+        // absent limit into a deny-all 0 or a bogus unlimited. Absent -> null ->
+        // unlimited (fail open); present -> the finite limit.
+        var tenancy = http.RequestServices.GetRequiredService<ITenancyApi>();
+        var entitlements = await tenancy.GetCallerEntitlementsAsync(http.RequestAborted);
+        int? limit = entitlements.Limits.TryGetValue(metric, out var value) ? value : null;
+
+        var quotas = http.RequestServices.GetRequiredService<IQuotaService>();
+        var outcome = await quotas.TryConsumeAsync(metric, amount, limit, http.RequestAborted);
+        if (!outcome.Allowed)
+        {
+            // Temporal refusal: name the whole seconds until the reset in Retry-After,
+            // never negative (clamped at 0), so a client backs off exactly to the
+            // period boundary. Set before returning the problem: the filter
+            // short-circuits, so the response has not started and the header sticks.
+            var clock = http.RequestServices.GetRequiredService<Clock>();
+            var retryAfter = QuotaPeriod.RetryAfterSeconds(clock.UtcNow, outcome.ResetAt);
+            http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
+
+            // A denied outcome always carries a finite limit (an unlimited metric
+            // never denies), so the limit is non-null here.
+            return TypedResults.Problem(
+                StarterProblems.QuotaExceeded(http, metric, outcome.Limit ?? 0, outcome.ResetAt));
         }
 
         return await next(context);

@@ -214,6 +214,30 @@ public static class StarterProblems
     }
 
     /// <summary>
+    /// 429 for a metered usage quota exhausted for the current billing period (the
+    /// RequireQuota gate, quotas.md section 5). The detail names the metric, the
+    /// limit, and the reset instant so a client can back off precisely; the gate
+    /// also sets the Retry-After header to the whole seconds until the reset. A
+    /// filter-produced block, so ErrorKind is untouched.
+    /// </summary>
+    public static ProblemDetails QuotaExceeded(
+        HttpContext httpContext, string metric, int limit, DateTimeOffset resetAt)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+        ArgumentException.ThrowIfNullOrWhiteSpace(metric);
+
+        var detail = string.Create(
+            CultureInfo.InvariantCulture,
+            $"The '{metric}' quota of {limit} for this billing period is exhausted; it resets at {resetAt:O}.");
+        return Create(
+            httpContext,
+            StatusCodes.Status429TooManyRequests,
+            ProblemTypes.QuotaExceeded,
+            "You have reached this plan limit for the billing period.",
+            detail);
+    }
+
+    /// <summary>
     /// 403 for a tenant admin trying to override a feature flag the operator did not
     /// mark tenant-overridable (feature-flags.md section 5). The operator holds the
     /// flag centrally; a tenant cannot touch it. Not 404 - the flag is listed on the

@@ -263,6 +263,24 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
                 .HasDatabaseName("ix_webhook_deliveries_tenant_endpoint_created");
             ApplyTenantFilter(entity);
         });
+
+        modelBuilder.Entity<UsageCounterRow>(entity =>
+        {
+            // The metered-quota counter (quotas.md section 2), tenant-owned and
+            // RLS-enforced (the RLS policy is hand-written in the migration). Unlike
+            // plans / feature_flags this is a NORMAL request-role DML table (no REVOKE
+            // in TenantRoleProvisioner): a tenant's own request increments its own
+            // counter under RLS. The composite pk (tenant_id, metric, period_start) is
+            // the upsert conflict target; used is bigint so a high-volume metric cannot
+            // overflow.
+            entity.ToTable("usage_counters");
+            entity.HasKey(e => new { e.TenantId, e.Metric, e.PeriodStart })
+                .HasName("pk_usage_counters");
+            entity.Property(e => e.Metric).HasColumnType("text");
+            entity.Property(e => e.PeriodStart).HasColumnType("date");
+            entity.Property(e => e.Used).HasColumnType("bigint");
+            ApplyTenantFilter(entity);
+        });
     }
 
     /// <summary>The operator-owned plan catalogue (no RLS; read on the request path, edited on the bypass path).</summary>
@@ -291,4 +309,7 @@ internal sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> opti
 
     /// <summary>The webhook deliveries (RLS-enforced; written by the fan-out consumer, drained by the worker on the bypass path).</summary>
     internal DbSet<WebhookDeliveryRow> WebhookDeliveries => Set<WebhookDeliveryRow>();
+
+    /// <summary>The metered-quota counters (RLS-enforced; incremented on the request path, read for the usage report).</summary>
+    internal DbSet<UsageCounterRow> UsageCounters => Set<UsageCounterRow>();
 }

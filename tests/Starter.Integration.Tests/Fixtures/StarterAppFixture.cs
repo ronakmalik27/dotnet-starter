@@ -47,6 +47,12 @@ public sealed class StarterAppFixture : IAsyncLifetime
     // fail-closed test can exercise the real filter over HTTP; production leaves it off.
     private const string FeatureFlagGateDemoKey = "FeatureFlags__GateDemoEnabled";
 
+    // Maps the RequireQuota metered-gate demonstration endpoint (quotas.md section
+    // 5), the same map-time-filter pattern: the demo route exists only when this
+    // toggle is set, so the metered-ceiling test can exercise the real filter over
+    // HTTP; production leaves it off and no live route is metered by default.
+    private const string QuotaDemoKey = "Quotas__DemoEnabled";
+
     // Webhook worker tuning for a fast, deterministic suite plus the loopback allowance
     // (WebhookOptions is bound from config, so these ride environment variables like the
     // connection string). AllowLoopbackDelivery relaxes ONLY loopback so the worker can
@@ -120,6 +126,7 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(SigningKeyKey, CreateEs256PrivateKeyPem());
         Environment.SetEnvironmentVariable(SignupRateLimitKey, "100000");
         Environment.SetEnvironmentVariable(FeatureFlagGateDemoKey, "true");
+        Environment.SetEnvironmentVariable(QuotaDemoKey, "true");
         foreach (var (key, value) in WebhookEnvironment)
         {
             Environment.SetEnvironmentVariable(key, value);
@@ -181,6 +188,7 @@ public sealed class StarterAppFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable(SigningKeyKey, null);
         Environment.SetEnvironmentVariable(SignupRateLimitKey, null);
         Environment.SetEnvironmentVariable(FeatureFlagGateDemoKey, null);
+        Environment.SetEnvironmentVariable(QuotaDemoKey, null);
         foreach (var (key, _) in WebhookEnvironment)
         {
             Environment.SetEnvironmentVariable(key, null);

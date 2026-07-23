@@ -274,6 +274,28 @@ public static class ProblemTypes
     /// </summary>
     public const string FlagNotOverridable = "starter:flag-not-overridable";
 
+    /// <summary>
+    /// 429: a METERED usage quota is exhausted for the current billing period (the
+    /// RequireQuota gate, quotas.md section 5). Temporal, so the answer carries a
+    /// Retry-After header set to the whole seconds until the period reset. Distinct
+    /// from <see cref="RateLimited"/> (the per-IP edge throttle) and from
+    /// <see cref="ResourceQuotaReached"/> (the non-temporal resource-count refusal at
+    /// 402): a plan-driven monthly counter is neither a token bucket nor a gauge.
+    /// </summary>
+    public const string QuotaExceeded = "starter:quota-exceeded";
+
+    /// <summary>
+    /// 402: a RESOURCE-COUNT quota is at its ceiling, so a create is refused
+    /// (quotas.md section 6, e.g. maxWorkspaces). Not temporal: waiting frees no
+    /// slot, so the honest answer is upgrade or delete something, never a
+    /// Retry-After. A DISTINCT slug from the metered <see cref="QuotaExceeded"/>
+    /// (429), so a client dispatching off <c>type</c> alone need not branch on
+    /// <c>status</c> (the strict one-type-one-status contract). The seat limit keeps
+    /// its own dedicated <see cref="TenantSeatLimitReached"/> (409) - it predates
+    /// this generalized quota.
+    /// </summary>
+    public const string ResourceQuotaReached = "starter:resource-quota-reached";
+
     /// <summary>405: the HTTP method is not supported on this route.</summary>
     public const string MethodNotAllowed = "starter:method-not-allowed";
 

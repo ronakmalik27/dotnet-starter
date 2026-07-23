@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Starter.Tenancy.Domain;
+using Starter.Platform.Auth;
 using Starter.Platform.Events;
 using Starter.Platform.Tenancy;
 using Starter.SharedKernel;
@@ -25,6 +26,7 @@ internal sealed class WorkspaceService(
     TenancyDbContext db,
     ITenantContext tenant,
     OutboxWriter outbox,
+    IEntitlementSource entitlementSource,
     Clock clock) : IWorkspaceReader
 {
     public async Task<(bool Exists, bool Archived)> LookupWorkspaceAsync(
@@ -87,6 +89,28 @@ internal sealed class WorkspaceService(
         if (duplicate)
         {
             return Result.Failure<Guid>(WorkspaceSlugTaken);
+        }
+
+        // The maxWorkspaces resource-count quota (quotas.md section 6). Resolve the
+        // active tenant's plan the GetCallerEntitlementsAsync way: read the tenant's
+        // plan under RLS (within this create transaction, so the GUC is set), then the
+        // no-RLS catalogue resolve. This is a COMMERCIAL gate, so it FAILS OPEN - an
+        // absent maxWorkspaces means unlimited and the create proceeds unchanged.
+        // Unlike the seat check (a race-proof denormalized column under FOR UPDATE),
+        // workspace creation is human-paced, so the count-then-insert here does not
+        // take the tenant-row lock (section 6). A limit of 0 is deny-all (intended).
+        var planKey = await db.Tenants
+            .AsNoTracking()
+            .Select(tenantRow => tenantRow.Plan)
+            .SingleOrDefaultAsync(cancellationToken);
+        var entitlements = await entitlementSource.ResolveAsync(planKey, cancellationToken);
+        if (entitlements.Limits.TryGetValue("maxWorkspaces", out var maxWorkspaces))
+        {
+            var current = await db.Workspaces.AsNoTracking().CountAsync(cancellationToken);
+            if (current >= maxWorkspaces)
+            {
+                return Result.Failure<Guid>(WorkspaceQuotaReached);
+            }
         }
 
         var row = new Workspace
@@ -258,6 +282,14 @@ internal sealed class WorkspaceService(
 
     private static readonly Error WorkspaceSlugTaken = new(
         ErrorKind.Conflict, "tenancy.workspace_slug_taken", "A workspace with that slug already exists.");
+
+    // Kind is nominal; the Api maps this code to a dedicated 402 resource-quota
+    // answer (quotas.md section 6). It is routed through TenancyProblems by code, so
+    // it never reaches the generic ErrorKind table. Mirrors permission_not_in_plan.
+    private static readonly Error WorkspaceQuotaReached = new(
+        ErrorKind.Validation,
+        "tenancy.workspace_quota_reached",
+        "This tenant is at its plan's workspace limit.");
 
     private static bool IsUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };

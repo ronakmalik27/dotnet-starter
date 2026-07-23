@@ -726,9 +726,14 @@ rewrite:
   gives. DESIGNED and being built out - see [webhooks.md](webhooks.md).
 - **Data export and account deletion (GDPR / DSAR)**: tenant-scoped reads and a
   soft-delete-to-hard-delete lifecycle on top of the existing tenant `status`.
-- **In-app notifications, usage quotas, data residency**: notifications ride the
-  existing `IEmailSender` and consumer pattern; quotas ride the rate limiter;
-  residency rides the silo indirection (section 12).
+- **In-app notifications, data residency**: notifications ride the existing
+  `IEmailSender` and consumer pattern; residency rides the silo indirection
+  (section 12).
+- **Usage quotas**: plan-driven per-tenant limits, both resource-count gauges
+  (`maxWorkspaces`, the seat limit) and metered windowed counters, resolved from
+  the plan's `limits` and enforced FAIL-OPEN at the boundary (a per-tenant plan
+  quota, distinct from the edge rate limiter). DESIGNED and being built out - see
+  [quotas.md](quotas.md).
 - **Global role templates and platform policy defaults**: the super-admin plane
   authors role templates seeded into every tenant, plus platform-wide defaults
   (password, session, and lockout policy) a tenant inherits and may tighten.

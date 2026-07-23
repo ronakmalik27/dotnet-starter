@@ -47,6 +47,12 @@ public static class PlatformPersistence
         // by feature-flags:manage. Request-scoped like the webhook admin service.
         services.AddScoped<IFeatureFlagAdmin, FeatureFlagAdminService>();
 
+        // The metered-quota counter service (quotas.md section 4): the atomic
+        // reserve on the RLS-scoped platform.usage_counters through the request-scoped
+        // PlatformDbContext, fail-open (an absent limit is a no-op). Request-scoped
+        // like the context it reads, and never touches the bypass data source.
+        services.AddScoped<IQuotaService, QuotaService>();
+
         // The tenant-admin audit read (RLS-bound, request-scoped) and the
         // super-admin audit read (bypass, cross-tenant).
         services.AddScoped<IAuditQuery, AuditQuery>();
