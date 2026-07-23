@@ -754,6 +754,7 @@ rewrite:
   and being built out - see
   [role-templates-and-policy-defaults.md](role-templates-and-policy-defaults.md).
 - **A policy engine (ABAC)**: conditional grants (time, IP, resource attributes)
-  through an engine such as Cedar or Open Policy Agent, evaluated at the same
-  per-request permission check (section 13). RBAC stays the default; ABAC layers
-  on only when a customer's rule needs a condition.
+  evaluated at the same per-request permission check (section 13); a real engine
+  such as Cedar or Open Policy Agent plugs in as one more evaluator. RBAC stays
+  the default; ABAC layers on only when a customer's rule needs a condition.
+  DESIGNED and being built out - see [abac.md](abac.md).
