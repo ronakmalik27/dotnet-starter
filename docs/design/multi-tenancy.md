@@ -724,8 +724,12 @@ rewrite:
 - **Outbound webhooks**: a consumer that fans domain events out to
   tenant-registered endpoints, reusing the at-least-once delivery the outbox
   gives. DESIGNED and being built out - see [webhooks.md](webhooks.md).
-- **Data export and account deletion (GDPR / DSAR)**: tenant-scoped reads and a
-  soft-delete-to-hard-delete lifecycle on top of the existing tenant `status`.
+- **Data export and account deletion (GDPR / DSAR)**: a self-serve tenant data
+  export (Art. 15/20, request-path RLS, secret-excluded) plus the
+  soft-delete-to-hard-delete lifecycle (Art. 17) on top of the existing tenant
+  `status` - a retention window, then a Platform-executed bypass purge that
+  produces a final export first. DESIGNED and being built out - see
+  [data-export-and-erasure.md](data-export-and-erasure.md).
 - **In-app notifications, data residency**: notifications ride the existing
   `IEmailSender` and consumer pattern; residency rides the silo indirection
   (section 12).

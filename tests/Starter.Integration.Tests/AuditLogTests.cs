@@ -49,6 +49,11 @@ public sealed class AuditLogTests(StarterAppFixture fixture)
         // deliverable catalogue, so they are audited by the async projection.
         "platform.feature_flag.created",
         "platform.feature_flag.updated",
+        // A tenant hard-delete (erasure) is recorded synchronously on
+        // platform.platform_audit_log in the same bypass transaction as the purge
+        // (data-export-and-erasure.md sections 5, 6), never by the async tenant
+        // projection - a tenant-scoped event would ride the spine the erasure destroys.
+        "platform.tenant.erased",
     };
 
     // Hoisted so the repeated helper argument is not a constant array literal (CA1861).

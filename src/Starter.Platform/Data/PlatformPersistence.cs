@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Starter.Platform.Dsar;
 using Starter.Platform.Events;
 
 namespace Starter.Platform.Data;
@@ -57,6 +58,22 @@ public static class PlatformPersistence
         // super-admin audit read (bypass, cross-tenant).
         services.AddScoped<IAuditQuery, AuditQuery>();
         services.AddScoped<IAuditAdminQuery, AuditAdminQuery>();
+
+        // Data export and erasure (data-export-and-erasure.md, GDPR/DSAR). The export
+        // service aggregates every module's IDataExportContributor on the request path
+        // under RLS (scoped, like the context they read); the erasure service executes
+        // the declared deletes on the caller's open bypass transaction (a singleton, the
+        // same shape as the platform audit writer). Platform's own contributors: the
+        // tenant-owned platform tables it exports, and the declaration of every platform
+        // table (plus the event spine) it erases.
+        services.AddScoped<ITenantExportService, TenantExportService>();
+        services.AddSingleton<ITenantErasureService, TenantErasureService>();
+        services.AddScoped<IDataExportContributor, PlatformExportContributors.AuditLog>();
+        services.AddScoped<IDataExportContributor, PlatformExportContributors.WebhookEndpoints>();
+        services.AddScoped<IDataExportContributor, PlatformExportContributors.WebhookDeliveries>();
+        services.AddScoped<IDataExportContributor, PlatformExportContributors.UsageCounters>();
+        services.AddScoped<IDataExportContributor, PlatformExportContributors.FeatureFlagOverrides>();
+        services.AddSingleton<ITenantErasureContributor, PlatformErasureContributor>();
 
         return services;
     }

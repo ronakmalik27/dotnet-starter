@@ -252,6 +252,16 @@ public static class ProblemTypes
     public const string PaymentRequired = "starter:payment-required";
 
     /// <summary>
+    /// 409: a tenant hard-delete (erasure) was requested before its retention window
+    /// elapsed (data-export-and-erasure.md section 5). A soft-deleted tenant is
+    /// recoverable for <c>DsarOptions.RetentionDays</c>; erasure is permitted only once
+    /// <c>deleted_at + RetentionDays &lt;= now</c>, or with an explicit break-glass
+    /// force. The detail names when the window elapses. Distinct from the
+    /// <see cref="TenantStateConflict"/> a not-deleted tenant gets.
+    /// </summary>
+    public const string RetentionNotElapsed = "starter:retention-not-elapsed";
+
+    /// <summary>
     /// 409: creating a plan asked for a key that already exists in the catalogue
     /// (billing-and-entitlements.md section 7). A plan key is operator-chosen and
     /// not a secret, so a definite answer is fine (the plans pk is the backstop).

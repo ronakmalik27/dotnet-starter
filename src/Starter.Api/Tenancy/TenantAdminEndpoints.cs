@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Starter.Api.Platform;
 using Starter.Tenancy;
 using Starter.Platform.Auth;
+using Starter.Platform.Dsar;
 using Starter.Platform.Http;
 using Starter.Platform.Tenancy;
 
@@ -68,7 +69,33 @@ public static class TenantAdminEndpoints
 
         tenant.MapGet("/seats", GetSeatsAsync).RequirePermission(Permissions.SeatsRead);
 
+        // Self-serve data export (data-export-and-erasure.md section 3, GDPR Art.
+        // 15/20): a bulk export of all tenant data, gated by data:export (an
+        // administrative capability, never grantable to a service account). Reads on
+        // the request path under RLS and emits tenancy.tenant.data_exported.
+        tenant.MapGet("/export", ExportAsync).RequirePermission(Permissions.DataExport);
+
         return app;
+    }
+
+    private static async Task<IResult> ExportAsync(
+        ITenantExportService exportService,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var callerId = http.User.GetUserId();
+        if (callerId is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        // Assemble the bundle from every module's contributor (RLS-bound reads), then
+        // record the access on the tenant's audit spine (the per-section count summary,
+        // no data copy). The bundle is the response.
+        var bundle = await exportService.ExportAsync(cancellationToken);
+        await tenancy.RecordDataExportAsync(callerId.Value, bundle.SectionCounts, cancellationToken);
+        return Results.Ok(bundle);
     }
 
     private static async Task<IResult> ListMembersAsync(

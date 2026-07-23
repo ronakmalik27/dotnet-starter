@@ -1,4 +1,5 @@
 using Starter.Platform.Auth;
+using Starter.Platform.Dsar;
 using Starter.SharedKernel;
 
 namespace Starter.Tenancy;
@@ -91,8 +92,21 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// <summary>Reactivates a suspended tenant (suspended -> active); emits TenantReactivated. Not-suspended is a Conflict.</summary>
     Task<Result> ReactivateTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken);
 
-    /// <summary>Soft-deletes a tenant (status -> deleted) on the platform plane; emits TenantSoftDeleted. Already-deleted is a Conflict.</summary>
+    /// <summary>Soft-deletes a tenant (status -> deleted) on the platform plane; emits TenantSoftDeleted, stamps deleted_at. Already-deleted is a Conflict.</summary>
     Task<Result> PlatformDeleteTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Hard-deletes (erases) a tenant on the platform plane (data-export-and-erasure.md
+    /// section 5, GDPR Art. 17): in ONE bypass transaction, locks the tenant row,
+    /// requires <c>status = deleted</c> (else a Conflict, <c>platform.tenant_state</c>)
+    /// and either the retention window elapsed or <paramref name="force"/> (else a
+    /// Conflict, <c>platform.retention_not_elapsed</c>), captures the redacted pre-purge
+    /// snapshot, purges every declared tenant-owned table plus the session revoke, and
+    /// records <c>platform.tenant.erased</c> on the surviving platform audit log. A
+    /// missing (or already-erased) tenant is a NotFound. Returns the operator snapshot.
+    /// </summary>
+    Task<Result<TenantErasureSnapshot>> EraseTenantAsync(
+        Guid actorUserId, Guid tenantId, bool force, CancellationToken cancellationToken);
 
     /// <summary>Lists the platform admins: user id, granter (null for the bootstrap seed), granted-at.</summary>
     Task<IReadOnlyList<(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt)>>
@@ -297,8 +311,18 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     Task<Result> TransferOwnershipAsync(
         Guid callerUserId, Guid targetUserId, CancellationToken cancellationToken);
 
-    /// <summary>Soft-deletes the active tenant (owner-only): status -> deleted, never a hard row delete.</summary>
+    /// <summary>Soft-deletes the active tenant (owner-only): status -> deleted, stamps deleted_at, never a hard row delete.</summary>
     Task<Result> SoftDeleteTenantAsync(Guid callerUserId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a completed self-serve data export on the active tenant's spine
+    /// (data-export-and-erasure.md section 6): emits <c>tenancy.tenant.data_exported</c>
+    /// (tenant-scoped, audited, webhook-deliverable) with the per-section row-count
+    /// <paramref name="sectionCounts"/> summary and no data copy. The bundle itself is
+    /// assembled by the platform export service; this is the audit trail.
+    /// </summary>
+    Task<Result> RecordDataExportAsync(
+        Guid callerUserId, IReadOnlyDictionary<string, int> sectionCounts, CancellationToken cancellationToken);
 
     /// <summary>
     /// The active tenant's seat limit and current active-member count (member+),

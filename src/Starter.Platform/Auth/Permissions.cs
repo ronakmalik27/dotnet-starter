@@ -85,6 +85,16 @@ public static class Permissions
     /// </summary>
     public const string FeatureFlagsManage = "feature-flags:manage";
 
+    /// <summary>
+    /// Export the whole tenant data set (data-export-and-erasure.md section 3, GDPR
+    /// Art. 15/20). A bulk export is an administrative act, so it is in the Admin+Owner
+    /// system-role set, and it is grantable in a custom role like any non-owner-reserved
+    /// permission - but NEVER to a service account
+    /// (<see cref="NotServiceAccountGrantable"/>): a bulk-exfiltration primitive on an
+    /// unattended, always-on key is exactly what to refuse.
+    /// </summary>
+    public const string DataExport = "data:export";
+
     /// <summary>Owner-reserved: rename or reconfigure the tenant. Never grantable in a custom role.</summary>
     public const string TenantManage = "tenant:manage";
 
@@ -116,6 +126,7 @@ public static class Permissions
         ApiKeysManage,
         WebhooksManage,
         FeatureFlagsManage,
+        DataExport,
         TenantManage,
         TenantDelete,
         TenantTransferOwnership,
@@ -151,6 +162,12 @@ public static class Permissions
     {
         RolesManage,
         ApiKeysManage,
+        // A bulk data export on an unattended, always-on service-account key is a
+        // distinct risk class from self-escalation: a single leaked key that can pull
+        // the entire tenant data set in one call is exactly what to refuse. So
+        // data:export is a human-admin capability only (data-export-and-erasure.md
+        // section 3).
+        DataExport,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>True when <paramref name="permission"/> is a catalogue permission.</summary>

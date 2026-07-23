@@ -139,6 +139,32 @@ internal static class PlatformAdminEvents
         };
 
     /// <summary>
+    /// platform.tenant.erased: a super-admin hard-deleted (erased) a tenant, purging
+    /// its rows (data-export-and-erasure.md sections 5, 6, GDPR Art. 17). Written
+    /// SYNCHRONOUSLY to platform.platform_audit_log in the SAME bypass transaction as
+    /// the purge - it is NOT a tenant-scoped domain event: a tenant-scoped event would
+    /// ride the tenant's own outbox / audit log, which the erasure is destroying. The
+    /// platform log is the surviving home. Actor is the acting super-admin; the entity
+    /// is the erased tenant.
+    /// </summary>
+    public static DomainEventRecord TenantErased(
+        Guid tenantId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "platform.tenant.erased",
+            EntityId = tenantId,
+            ActorUserId = actorUserId,
+            // The platform audit log has no tenant_id / entity_id column, so the
+            // erased tenant id rides the payload (a scalar, no PII) to keep the
+            // durable record self-identifying.
+            Payload = JsonSerializer.Serialize(new { tenantId }, Json),
+        };
+
+    /// <summary>
     /// platform.impersonation.started: an admin started an impersonation session.
     /// Written in the SAME transaction as the grant row, so no impersonation
     /// token exists without this audit record. Actor is the acting admin; the

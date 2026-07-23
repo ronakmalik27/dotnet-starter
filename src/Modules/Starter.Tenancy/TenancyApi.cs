@@ -3,6 +3,7 @@ using Starter.Tenancy.ControlPlane;
 using Starter.Tenancy.Rbac;
 using Starter.Tenancy.ServiceAccounts;
 using Starter.Platform.Auth;
+using Starter.Platform.Dsar;
 using Starter.SharedKernel;
 
 namespace Starter.Tenancy;
@@ -64,6 +65,10 @@ internal sealed class TenancyApi(
 
     public Task<Result> PlatformDeleteTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken) =>
         platform.DeleteTenantAsync(actorUserId, tenantId, cancellationToken);
+
+    public Task<Result<TenantErasureSnapshot>> EraseTenantAsync(
+        Guid actorUserId, Guid tenantId, bool force, CancellationToken cancellationToken) =>
+        platform.EraseTenantAsync(actorUserId, tenantId, force, cancellationToken);
 
     public Task<IReadOnlyList<(Guid UserId, Guid? GrantedBy, DateTimeOffset GrantedAt)>>
         ListPlatformAdminsAsync(CancellationToken cancellationToken) =>
@@ -218,6 +223,10 @@ internal sealed class TenancyApi(
 
     public Task<Result> SoftDeleteTenantAsync(Guid callerUserId, CancellationToken cancellationToken) =>
         admin.SoftDeleteTenantAsync(callerUserId, cancellationToken);
+
+    public Task<Result> RecordDataExportAsync(
+        Guid callerUserId, IReadOnlyDictionary<string, int> sectionCounts, CancellationToken cancellationToken) =>
+        admin.RecordDataExportAsync(callerUserId, sectionCounts, cancellationToken);
 
     public Task<(int SeatLimit, int ActiveMembers, string? Plan, IReadOnlyDictionary<string, int> Limits)>
         GetSeatsAsync(CancellationToken cancellationToken) =>

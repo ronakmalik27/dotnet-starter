@@ -52,6 +52,16 @@ internal sealed class Tenant : ITenantOwned
 
     /// <summary>The user who created the tenant (the first owner). A bare id by value, no cross-schema FK.</summary>
     public required Guid CreatedBy { get; init; }
+
+    /// <summary>
+    /// When the tenant was soft-deleted (status -&gt; deleted), or null while it is
+    /// active or suspended (data-export-and-erasure.md section 2). Stamped on
+    /// soft-delete (both the super-admin and owner paths), cleared on reactivate. The
+    /// retention window (<c>DsarOptions.RetentionDays</c>) is measured from it: a hard
+    /// delete is permitted only once <c>deleted_at + RetentionDays &lt;= now</c> (or a
+    /// break-glass force).
+    /// </summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }
 
 /// <summary>tenancy.tenants.status values (the schema owns the full set).</summary>

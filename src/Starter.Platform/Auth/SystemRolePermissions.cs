@@ -72,6 +72,11 @@ public static class SystemRolePermissions
             // non-owner-reserved permission, and (like webhooks) grantable to a service
             // account too - it is not self-escalation.
             Permissions.FeatureFlagsManage,
+            // Exporting the whole tenant data set is admin work (data-export-and-erasure.md
+            // section 3): Admins and Owners self-serve the GDPR Art. 15/20 portability
+            // bundle. Grantable in a custom role like any non-owner-reserved permission -
+            // but never to a service account (Permissions.NotServiceAccountGrantable).
+            Permissions.DataExport,
         ])
         .ToFrozenSet(StringComparer.Ordinal);
 

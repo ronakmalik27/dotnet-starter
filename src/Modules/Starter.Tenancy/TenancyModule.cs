@@ -3,11 +3,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Starter.Tenancy.Admin;
 using Starter.Tenancy.ControlPlane;
+using Starter.Tenancy.Dsar;
 using Starter.Tenancy.Invitations;
 using Starter.Tenancy.Rbac;
 using Starter.Tenancy.ServiceAccounts;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
+using Starter.Platform.Dsar;
 using Starter.Platform.Tenancy;
 
 namespace Starter.Tenancy;
@@ -74,6 +76,17 @@ public static class TenancyModule
             apiKeys.Bind(configuration.GetSection(ApiKeyOptions.SectionName));
         }
 
+        // The DSAR options (Dsar:RetentionDays), validated at startup like the
+        // platform options above (data-export-and-erasure.md section 2). The default
+        // (30) satisfies the [Range], so a zero-config host still boots.
+        var dsar = services.AddOptions<DsarOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        if (configuration is not null)
+        {
+            dsar.Bind(configuration.GetSection(DsarOptions.SectionName));
+        }
+
         // Bypass-path (cross-tenant control plane) slices.
         services.AddScoped<TenantProvisioner>();
         services.AddScoped<MembershipDirectory>();
@@ -93,6 +106,24 @@ public static class TenancyModule
         services.AddScoped<TenantAdminService>();
 
         services.AddScoped<ITenancyApi, TenancyApi>();
+
+        // DSAR contributors (data-export-and-erasure.md). Export contributors read the
+        // request-scoped, RLS-bound TenancyDbContext (scoped, like the context); the
+        // erasure contributor is a stateless table DECLARATION (singleton). Both are
+        // declaration/read-only - the privileged erase runs in the allowlisted
+        // PlatformAdminService, so this registration adds no bypass reach. Registered
+        // in FK-safe export/aggregation order.
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.TenantProfile>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.Memberships>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.Workspaces>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.Teams>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.TeamMembers>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.Roles>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.RolePermissions>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.RoleAssignments>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.Invitations>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.ServiceAccounts>();
+        services.AddSingleton<ITenantErasureContributor, TenancyErasureContributor>();
 
         // Bridge the platform-declared role-reader port (used by the layer-3
         // resource handler in the platform) to the request-path resolver, so the

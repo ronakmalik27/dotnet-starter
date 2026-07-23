@@ -29,6 +29,9 @@ internal static class DeliverableEvents
         "tenancy.tenant.suspended",
         "tenancy.tenant.reactivated",
         "tenancy.tenant.plan_changed",
+        // A bulk data export is a tenant-scoped, audited, webhook-deliverable access
+        // (data-export-and-erasure.md section 6): a security team may want to know.
+        "tenancy.tenant.data_exported",
         "tenancy.workspace.created",
         "tenancy.workspace.renamed",
         "tenancy.workspace.archived",

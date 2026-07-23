@@ -20,6 +20,11 @@ internal static class PlatformAdminProblems
     {
         "platform.tenant_state" => Conflict(
             http, ProblemTypes.TenantStateConflict, "The tenant is not in a state that allows this.", error.Message),
+        // The tenant is soft-deleted but its retention window has not elapsed
+        // (data-export-and-erasure.md section 5). A distinct 409 slug from the
+        // not-deleted tenant-state clash, so a client can tell the two apart.
+        "platform.retention_not_elapsed" => Conflict(
+            http, ProblemTypes.RetentionNotElapsed, "The retention window has not elapsed.", error.Message),
         "platform.last_admin" => Conflict(
             http, ProblemTypes.PlatformLastAdmin, "The last platform admin cannot be revoked.", error.Message),
         "platform.plan_key_taken" => Conflict(

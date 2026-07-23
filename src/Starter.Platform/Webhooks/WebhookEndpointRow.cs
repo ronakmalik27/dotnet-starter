@@ -31,7 +31,13 @@ internal sealed class WebhookEndpointRow : ITenantOwned
     /// <summary>Subscribed event types; an empty array means all deliverable events.</summary>
     public required string[] EventTypes { get; set; }
 
-    /// <summary>The DataProtection ciphertext of the signing secret (never the raw secret).</summary>
+    /// <summary>
+    /// The DataProtection ciphertext of the signing secret (never the raw secret).
+    /// <see cref="SensitiveAttribute"/>: a credential column that must never appear in
+    /// a data export or the operator erasure snapshot (data-export-and-erasure.md
+    /// section 8).
+    /// </summary>
+    [Sensitive]
     public required string SigningSecretEncrypted { get; set; }
 
     /// <summary>The first characters of the raw secret, kept in clear for display only.</summary>

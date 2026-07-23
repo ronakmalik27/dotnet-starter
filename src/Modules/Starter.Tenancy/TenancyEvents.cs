@@ -161,6 +161,28 @@ internal static class TenancyEvents
             Payload = JsonSerializer.Serialize(new { newOwnerUserId, previousOwnerUserId }, Json),
         };
 
+    /// <summary>
+    /// tenancy.tenant.data_exported: a tenant admin exported the tenant's whole data
+    /// set (data-export-and-erasure.md section 6, GDPR Art. 15/20). Tenant-scoped,
+    /// audited, and webhook-deliverable, so a bulk data access is on the record. Actor
+    /// is the exporting admin; the payload is a per-section row-count summary
+    /// (<c>sections</c>), never a copy of the exported data.
+    /// </summary>
+    public static DomainEventRecord TenantDataExported(
+        Guid tenantId,
+        Guid actorUserId,
+        IReadOnlyDictionary<string, int>? sectionCounts,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.tenant.data_exported",
+            EntityId = tenantId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { sections = sectionCounts }, Json),
+        };
+
     /// <summary>tenancy.tenant.soft_deleted: the owner soft-deleted the tenant (status -> deleted).</summary>
     public static DomainEventRecord TenantSoftDeleted(
         Guid tenantId,

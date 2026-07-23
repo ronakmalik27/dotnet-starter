@@ -28,7 +28,13 @@ internal sealed class ServiceAccount : ITenantOwned
     /// <summary>The admin-facing label. Editable is a documented extension; fixed at create today.</summary>
     public required string Name { get; init; }
 
-    /// <summary>SHA-256 hex of the raw key: the tenant-less lookup key, globally unique. Replaced on rotate.</summary>
+    /// <summary>
+    /// SHA-256 hex of the raw key: the tenant-less lookup key, globally unique. Replaced
+    /// on rotate. <see cref="SensitiveAttribute"/>: a credential column that must never
+    /// appear in a data export or the operator erasure snapshot
+    /// (data-export-and-erasure.md section 8).
+    /// </summary>
+    [Sensitive]
     public required string KeyHash { get; set; }
 
     /// <summary>The first chars of the raw key, in clear for display. Never the secret. Replaced on rotate.</summary>

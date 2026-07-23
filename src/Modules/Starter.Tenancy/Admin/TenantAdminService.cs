@@ -436,11 +436,32 @@ internal sealed class TenantAdminService(
 
         // Soft-delete via status, never a hard row delete (audit). Memberships
         // are left intact this increment; a deleted tenant simply stops being
-        // usable.
+        // usable. Stamp deleted_at: the DSAR retention window is measured from it,
+        // and reactivate clears it (data-export-and-erasure.md section 2).
         tenantRow.Status = TenantStatus.Deleted;
+        tenantRow.DeletedAt = now;
         await db.SaveChangesAsync(cancellationToken);
         await outbox.EnqueueAsync(
             db, TenancyEvents.TenantSoftDeleted(tenant.TenantId, callerUserId, now), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Records a completed self-serve data export (data-export-and-erasure.md section
+    /// 6): enqueues <c>tenancy.tenant.data_exported</c> on the active tenant's spine
+    /// (audited and webhook-deliverable) with a per-section row-count summary and no
+    /// data copy. Runs on the request path under RLS - the endpoint has already read
+    /// the bundle through the export service; this is the audit trail for the access.
+    /// </summary>
+    public async Task<Result> RecordDataExportAsync(
+        Guid callerUserId, IReadOnlyDictionary<string, int> sectionCounts, CancellationToken cancellationToken)
+    {
+        var now = clock.UtcNow;
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await outbox.EnqueueAsync(
+            db, TenancyEvents.TenantDataExported(tenant.TenantId, callerUserId, sectionCounts, now), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return Result.Success();

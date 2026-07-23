@@ -40,6 +40,7 @@ public static class PlatformAdminEndpoints
         platform.MapPost("/tenants/{id:guid}/suspend", SuspendTenantAsync);
         platform.MapPost("/tenants/{id:guid}/reactivate", ReactivateTenantAsync);
         platform.MapPost("/tenants/{id:guid}/delete", DeleteTenantAsync);
+        platform.MapPost("/tenants/{id:guid}/erase", EraseTenantAsync);
 
         platform.MapGet("/plans", ListPlansAsync);
         platform.MapPost("/plans", CreatePlanAsync);
@@ -97,6 +98,28 @@ public static class PlatformAdminEndpoints
     private static Task<IResult> DeleteTenantAsync(
         Guid id, ITenancyApi tenancy, HttpContext http, CancellationToken cancellationToken) =>
         LifecycleAsync(http, (actor, ct) => tenancy.PlatformDeleteTenantAsync(actor, id, ct), cancellationToken);
+
+    private static async Task<IResult> EraseTenantAsync(
+        Guid id,
+        EraseTenantRequest? request,
+        ITenancyApi tenancy,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var actor = http.User.GetUserId();
+        if (actor is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        // The single most dangerous operation in the starter: one bypass transaction
+        // that snapshots, purges, and audits (data-export-and-erasure.md section 5).
+        // Returns the operator's pre-purge snapshot so it captures the compliance record.
+        var result = await tenancy.EraseTenantAsync(actor.Value, id, request?.Force ?? false, cancellationToken);
+        return result.Match(
+            snapshot => (IResult)Results.Ok(snapshot),
+            error => PlatformAdminProblems.From(http, error));
+    }
 
     private static async Task<IResult> ListPlansAsync(
         ITenancyApi tenancy, CancellationToken cancellationToken)
@@ -493,6 +516,14 @@ public sealed record PlatformAdminResponse(Guid UserId, Guid? GrantedBy, DateTim
 
 /// <summary>POST /api/v1/platform/admins body: a user id or an email (at least one).</summary>
 public sealed record GrantAdminRequest(Guid? UserId, string? Email);
+
+/// <summary>
+/// POST /api/v1/platform/tenants/{id}/erase body. <paramref name="Force"/> is the
+/// documented break-glass for a legal erasure demand that cannot wait out the
+/// retention window (data-export-and-erasure.md section 5); it defaults to false when
+/// the body is omitted.
+/// </summary>
+public sealed record EraseTenantRequest(bool Force);
 
 /// <summary>POST /api/v1/platform/impersonation body.</summary>
 public sealed record StartImpersonationRequest(Guid TenantId, Guid? UserId, string? Reason);

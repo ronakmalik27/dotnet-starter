@@ -7,6 +7,7 @@ using NpgsqlTypes;
 using Starter.Tenancy.Domain;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
+using Starter.Platform.Dsar;
 using Starter.Platform.Events;
 using Starter.Platform.Tenancy;
 using Starter.SharedKernel;
@@ -36,7 +37,9 @@ internal sealed class PlatformAdminService(
     IPlatformAuditWriter auditWriter,
     IUserDirectory users,
     Clock clock,
-    IOptions<PlatformAdminOptions> options)
+    IOptions<PlatformAdminOptions> options,
+    ITenantErasureService erasure,
+    IOptions<DsarOptions> dsarOptions)
 {
     private const int MaxTenantPage = 200;
     private const int DefaultTenantPage = 50;
@@ -141,16 +144,42 @@ internal sealed class PlatformAdminService(
             eventFactory: TenancyEvents.TenantSuspended,
             cancellationToken);
 
-    public Task<Result> ReactivateTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken) =>
-        ChangeTenantStatusAsync(
-            actorUserId,
-            tenantId,
-            requiredFrom: TenantStatus.Suspended,
-            toStatus: TenantStatus.Active,
-            wrongState: new Error(
-                ErrorKind.Conflict, "platform.tenant_state", "Only a suspended tenant can be reactivated."),
-            eventFactory: TenancyEvents.TenantReactivated,
-            cancellationToken);
+    public async Task<Result> ReactivateTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken)
+    {
+        // WIDENED for DSAR (data-export-and-erasure.md section 2): a soft-deleted
+        // tenant must be recoverable within the retention window, so both
+        // `suspended -> active` and `deleted -> active` reactivate, and the
+        // deleted_at stamp is cleared on the transition (the standard "restore within
+        // N days" model). A HARD-deleted tenant cannot be reactivated - its rows are
+        // gone. Not routed through ChangeTenantStatusAsync because that helper allows
+        // exactly one source state and does not clear deleted_at.
+        var now = clock.UtcNow;
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var db = OpenContext(connection, ITenantContext.ForTenant(tenantId));
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var tenant = await db.Tenants.SingleOrDefaultAsync(cancellationToken);
+        if (tenant is null)
+        {
+            return Result.Failure(TenantNotFound);
+        }
+
+        if (tenant.Status is not (TenantStatus.Suspended or TenantStatus.Deleted))
+        {
+            return Result.Failure(new Error(
+                ErrorKind.Conflict,
+                "platform.tenant_state",
+                "Only a suspended or deleted tenant can be reactivated."));
+        }
+
+        tenant.Status = TenantStatus.Active;
+        tenant.DeletedAt = null;
+        await db.SaveChangesAsync(cancellationToken);
+        await outbox.EnqueueAsync(db, TenancyEvents.TenantReactivated(tenantId, actorUserId, now), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success();
+    }
 
     public async Task<Result> DeleteTenantAsync(Guid actorUserId, Guid tenantId, CancellationToken cancellationToken)
     {
@@ -172,14 +201,85 @@ internal sealed class PlatformAdminService(
         }
 
         // Soft-delete via status, never a hard row delete (audit). Reuses the
-        // increment-3 soft-deleted event.
+        // increment-3 soft-deleted event. Stamp deleted_at: the DSAR retention window
+        // is measured from it, and reactivate clears it (data-export-and-erasure.md
+        // section 2).
         tenant.Status = TenantStatus.Deleted;
+        tenant.DeletedAt = now;
         await db.SaveChangesAsync(cancellationToken);
         await outbox.EnqueueAsync(
             db, TenancyEvents.TenantSoftDeleted(tenantId, actorUserId, now), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Hard-deletes (erases) a tenant (data-export-and-erasure.md section 5, GDPR Art.
+    /// 17): the single most dangerous operation in the starter, so ALL of it runs in
+    /// ONE bypass transaction, committed once, and every erasure statement carries an
+    /// explicit tenant filter. Loads the tenant <c>FOR UPDATE</c> (the row lock closes
+    /// the reactivate/erase race now that <c>deleted -> active</c> exists); requires
+    /// <c>status = deleted</c> (else a tenant-state Conflict) and either the retention
+    /// window elapsed or <paramref name="force"/> (else a retention Conflict); captures
+    /// the redacted pre-purge snapshot; erases every declared table plus the session
+    /// revoke; records <c>platform.tenant.erased</c> on the surviving platform audit
+    /// log; then commits. A missing (or already-erased) tenant is a NotFound.
+    /// </summary>
+    public async Task<Result<TenantErasureSnapshot>> EraseTenantAsync(
+        Guid actorUserId, Guid tenantId, bool force, CancellationToken cancellationToken)
+    {
+        var now = clock.UtcNow;
+        await using var connection = await bypass.DataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var dbTransaction = (NpgsqlTransaction)transaction;
+
+        // 1. Lock the tenant row. The lock is essential: a concurrent reactivate
+        // could otherwise flip the tenant back to active between this check and the
+        // delete, erasing a just-restored tenant.
+        var target = await ReadTenantForErasureAsync(connection, dbTransaction, tenantId, cancellationToken);
+        if (target is null)
+        {
+            return Result.Failure<TenantErasureSnapshot>(TenantNotFound);
+        }
+
+        var (status, deletedAt) = target.Value;
+        if (status != TenantStatus.Deleted)
+        {
+            return Result.Failure<TenantErasureSnapshot>(new Error(
+                ErrorKind.Conflict,
+                "platform.tenant_state",
+                "The tenant must be soft-deleted before it can be erased."));
+        }
+
+        var retention = TimeSpan.FromDays(dsarOptions.Value.RetentionDays);
+        var elapsesAt = (deletedAt ?? now) + retention;
+        if (!force && (deletedAt is null || elapsesAt > now))
+        {
+            return Result.Failure<TenantErasureSnapshot>(new Error(
+                ErrorKind.Conflict,
+                "platform.retention_not_elapsed",
+                $"The retention window has not elapsed; it elapses at {elapsesAt:O}. Pass force to erase now."));
+        }
+
+        // 2. Capture the operator's pre-purge compliance snapshot (secrets redacted).
+        var snapshot = await erasure.CaptureSnapshotAsync(connection, dbTransaction, tenantId, cancellationToken);
+
+        // 3. Erase every declared table plus the session revoke.
+        await erasure.EraseAsync(connection, dbTransaction, tenantId, cancellationToken);
+
+        // 4. Record the erasure on the platform audit log (NOT tenant-scoped: the
+        // tenant's own spine is being destroyed). Then commit - so an erased tenant
+        // can never exist without its audit record.
+        await auditWriter.WriteAsync(
+            connection,
+            dbTransaction,
+            PlatformAdminEvents.TenantErased(tenantId, actorUserId, now),
+            subjectUserId: null,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Result.Success(snapshot);
     }
 
     // --- Plans (operator catalogue on platform.plans, bypass-path) --------
@@ -908,6 +1008,34 @@ internal sealed class PlatformAdminService(
             "select 1 from tenancy.tenants where id = @id limit 1", connection);
         command.Parameters.AddWithValue("id", tenantId);
         return await command.ExecuteScalarAsync(cancellationToken) is not null;
+    }
+
+    // Reads the tenant's status and deleted_at under a row lock (FOR UPDATE) on the
+    // bypass connection, so a concurrent reactivate cannot race the erase between the
+    // retention check and the purge. RLS is off on the bypass role, so the explicit
+    // `where id` is the tenant filter. Null when the tenant does not exist.
+    private static async Task<(string Status, DateTimeOffset? DeletedAt)?> ReadTenantForErasureAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "select status, deleted_at from tenancy.tenants where id = @id for update",
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("id", tenantId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var deletedAt = await reader.IsDBNullAsync(1, cancellationToken)
+            ? (DateTimeOffset?)null
+            : reader.GetFieldValue<DateTimeOffset>(1);
+        return (reader.GetString(0), deletedAt);
     }
 
     private static async Task<(Guid TenantId, DateTimeOffset? EndedAt)?> ReadGrantTargetAsync(
