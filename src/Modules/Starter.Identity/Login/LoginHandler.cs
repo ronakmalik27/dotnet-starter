@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Starter.Identity.Domain;
+using Starter.Identity.Mfa;
 using Starter.Identity.Passwords;
 using Starter.Identity.Tokens;
 using Starter.Platform.Auth;
@@ -18,6 +19,7 @@ namespace Starter.Identity.Login;
 internal sealed class LoginHandler(
     IdentityDbContext db,
     SessionIssuer sessions,
+    MfaChallengeTokens mfaChallengeTokens,
     IPolicyDefaults policyDefaults,
     Clock clock)
 {
@@ -26,7 +28,7 @@ internal sealed class LoginHandler(
         "auth.invalid_credentials",
         "The email or password is incorrect.");
 
-    public async Task<Result<IssuedTokens>> HandleAsync(
+    public async Task<Result<LoginOutcome>> HandleAsync(
         string email,
         string password,
         string? deviceLabel,
@@ -127,6 +129,21 @@ internal sealed class LoginHandler(
                     cancellationToken);
         }
 
+        // MFA step-up (mfa-totp.md section 5): the password is proven, but a
+        // CONFIRMED second factor turns login into a two-step exchange. Do NOT
+        // issue a session here - return a short-lived challenge the mfa-verify
+        // endpoint exchanges (with a TOTP or recovery code) for the real
+        // session. A user without confirmed MFA logs in in one step, exactly as
+        // before. Checked before the rehash so an MFA login stages no write.
+        var mfaConfirmed = await db.MfaCredentials.AnyAsync(
+            credential => credential.UserId == user.Id && credential.ConfirmedAt != null,
+            cancellationToken);
+        if (mfaConfirmed)
+        {
+            var challenge = mfaChallengeTokens.Mint(user.Id, now);
+            return new LoginOutcome.MfaChallenge(challenge.Token, challenge.ExpiresInSeconds);
+        }
+
         if (PasswordHasher.NeedsRehash(method.PasswordHash))
         {
             // The one moment the plaintext and the row meet with the
@@ -139,6 +156,7 @@ internal sealed class LoginHandler(
         // (the same method-agnostic issuance Google
         // sign-in rides). Login is tenant-less: the session binds no tenant, so
         // the access token carries no tid and the caller selects a tenant next.
-        return await sessions.IssueAsync(user, tenantId: null, deviceLabel, ipAddress, now, cancellationToken);
+        var tokens = await sessions.IssueAsync(user, tenantId: null, deviceLabel, ipAddress, now, cancellationToken);
+        return new LoginOutcome.Tokens(tokens);
     }
 }

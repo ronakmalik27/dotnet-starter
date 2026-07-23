@@ -56,6 +56,8 @@ internal sealed class IdentityNotificationsConsumer(
     [
         "identity.registration.reattempted",
         "identity.password.changed",
+        "identity.mfa.enabled",
+        "identity.mfa.disabled",
     ];
 
     public async Task ConsumeAsync(
@@ -133,6 +135,22 @@ internal sealed class IdentityNotificationsConsumer(
             TextBody =
                 "Your password was just changed. If this was not you, reset it "
                 + "immediately or contact support.",
+        },
+        "identity.mfa.enabled" => new EmailMessage
+        {
+            To = emailAddress,
+            Subject = "Two-factor authentication was enabled",
+            TextBody =
+                "Two-factor authentication was just enabled on your account. If this "
+                + "was not you, reset your password immediately and contact support.",
+        },
+        "identity.mfa.disabled" => new EmailMessage
+        {
+            To = emailAddress,
+            Subject = "Two-factor authentication was disabled",
+            TextBody =
+                "Two-factor authentication was just disabled on your account. If this "
+                + "was not you, reset your password immediately and contact support.",
         },
         _ => null,
     };

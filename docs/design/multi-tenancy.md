@@ -707,7 +707,9 @@ rewrite:
   DESIGNED and being built out - see [service-accounts.md](service-accounts.md).
 - **SSO (SAML / OIDC) and SCIM provisioning**: a per-tenant identity-provider
   config; SCIM maps directory groups to teams (section 14) and roles.
-- **MFA / TOTP**: an Identity add-on on the sign-in path; no tenancy change.
+- **MFA / TOTP**: an Identity add-on on the sign-in path (RFC 6238 TOTP second
+  factor, two-step login, recovery codes, secret encrypted at rest); no tenancy
+  change. DESIGNED and being built out - see [mfa-totp.md](mfa-totp.md).
 - **Billing (plans, subscriptions, seats, metering) and entitlements**: `plan`
   and `seat_limit` already exist on the tenant; entitlements gate the permission
   catalogue (section 15) and features per plan. DESIGNED and being built out -

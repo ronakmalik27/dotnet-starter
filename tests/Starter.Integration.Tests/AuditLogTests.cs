@@ -36,6 +36,10 @@ public sealed class AuditLogTests(StarterAppFixture fixture)
         "identity.user.verified",
         "identity.session.created",
         "identity.session.revoked",
+        // MFA enable/disable are global identity events (no tenant), the same
+        // class as identity.password.changed - notified, never tenant-audited.
+        "identity.mfa.enabled",
+        "identity.mfa.disabled",
         "platform.admin.granted",
         "platform.admin.revoked",
         // Plan-catalogue edits are null-tenant operator actions audited

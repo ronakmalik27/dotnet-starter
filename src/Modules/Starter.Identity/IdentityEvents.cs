@@ -130,6 +130,40 @@ internal static class IdentityEvents
         };
 
     /// <summary>
+    /// identity.mfa.enabled: the user confirmed a TOTP second factor
+    /// (mfa-totp.md section 8). A GLOBAL identity event, the same class as
+    /// identity.password.changed: it carries no tenant, so it is NOT on the
+    /// tenant-scoped deliverable catalogue and NOT in the tenant audit log.
+    /// N:security notifies.
+    /// </summary>
+    public static DomainEventRecord MfaEnabled(Guid userId, DateTimeOffset now) => new()
+    {
+        Id = Ids.NewId(now),
+        OccurredAt = now,
+        Module = Module,
+        EventType = "identity.mfa.enabled",
+        EntityId = userId,
+        ActorUserId = userId,
+        Payload = "{}",
+    };
+
+    /// <summary>
+    /// identity.mfa.disabled: the user turned the TOTP second factor off
+    /// (mfa-totp.md section 8), re-proving it first. A GLOBAL identity event
+    /// like identity.mfa.enabled; N:security notifies.
+    /// </summary>
+    public static DomainEventRecord MfaDisabled(Guid userId, DateTimeOffset now) => new()
+    {
+        Id = Ids.NewId(now),
+        OccurredAt = now,
+        Module = Module,
+        EventType = "identity.mfa.disabled",
+        EntityId = userId,
+        ActorUserId = userId,
+        Payload = "{}",
+    };
+
+    /// <summary>
     /// identity.session.revoked with reason refresh_reuse:
     /// a rotated or revoked refresh token was presented again, so the
     /// whole family is dead and the user gets a security notice.

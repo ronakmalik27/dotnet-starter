@@ -65,6 +65,19 @@ public static class IdentityEndpoints
         app.MapPost("/api/v1/auth/verify-email/resend", ResendVerificationAsync)
             .RequireAuthorization();
 
+        // MFA / TOTP (mfa-totp.md). Enroll, confirm, disable, and
+        // regenerate-recovery-codes are authenticated (they act on the caller's
+        // own account) and additionally require a step-up proof, so they map
+        // OUTSIDE the anonymous group with RequireAuthorization. Verify is
+        // anonymous like login: it carries a challenge token validated INSIDE
+        // the handler (its audience is rejected by the [Authorize] pipeline),
+        // so it rides the anonymous group.
+        app.MapPost("/api/v1/auth/mfa/enroll", MfaEnrollAsync).RequireAuthorization();
+        app.MapPost("/api/v1/auth/mfa/confirm", MfaConfirmAsync).RequireAuthorization();
+        app.MapPost("/api/v1/auth/mfa/disable", MfaDisableAsync).RequireAuthorization();
+        app.MapPost("/api/v1/auth/mfa/recovery-codes", MfaRecoveryCodesAsync).RequireAuthorization();
+        auth.MapPost("/mfa/verify", MfaVerifyAsync);
+
         return app;
     }
 
@@ -125,12 +138,23 @@ public static class IdentityEndpoints
             ClientIp(http),
             cancellationToken);
         return result.Match(
-            tokens =>
+            outcome => outcome switch
             {
-                RefreshCookie.Append(http.Response, tokens.RefreshToken, tokens.RefreshExpiresAt);
-                return (IResult)Results.Ok(new TokenResponse(tokens.AccessToken, tokens.AccessTokenExpiresIn));
+                // No MFA: the session issues, exactly as before.
+                Starter.Platform.Auth.LoginOutcome.Tokens tokens => IssueTokenResponse(http, tokens.Issued),
+                // Confirmed MFA: no session yet - the client exchanges the
+                // challenge at /mfa/verify with a code.
+                Starter.Platform.Auth.LoginOutcome.MfaChallenge challenge => (IResult)Results.Ok(
+                    new MfaChallengeResponse(true, challenge.Token, challenge.ExpiresInSeconds)),
+                _ => throw new InvalidOperationException("Unmapped login outcome."),
             },
             error => error.ToProblemResult(http));
+    }
+
+    private static IResult IssueTokenResponse(HttpContext http, Starter.Platform.Auth.IssuedTokens tokens)
+    {
+        RefreshCookie.Append(http.Response, tokens.RefreshToken, tokens.RefreshExpiresAt);
+        return Results.Ok(new TokenResponse(tokens.AccessToken, tokens.AccessTokenExpiresIn));
     }
 
     private static async Task<IResult> RefreshAsync(
@@ -421,6 +445,168 @@ public static class IdentityEndpoints
             error => error.ToProblemResult(http));
     }
 
+    private static async Task<IResult> MfaEnrollAsync(
+        MfaEnrollRequest request,
+        IIdentityApi identity,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(request.CurrentPassword))
+        {
+            return ValidationField(http, "currentPassword", "The current password is required.");
+        }
+
+        var userId = http.User.GetUserId();
+        if (userId is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await identity.EnrollMfaAsync(userId.Value, request.CurrentPassword!, cancellationToken);
+        return result.Match(
+            enrollment => (IResult)Results.Ok(new MfaEnrollResponse(enrollment.OtpauthUri, enrollment.Secret)),
+            error => error.Code switch
+            {
+                // The step-up proof did not check out, named on its own field.
+                "auth.current_password_incorrect" => ValidationField(http, "currentPassword", error.Message),
+                _ => error.ToProblemResult(http),
+            });
+    }
+
+    private static async Task<IResult> MfaConfirmAsync(
+        MfaConfirmRequest request,
+        IIdentityApi identity,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrEmpty(request.CurrentPassword))
+        {
+            errors["currentPassword"] = ["The current password is required."];
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            errors["code"] = ["A verification code is required."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.Problem(StarterProblems.Validation(http, errors));
+        }
+
+        var userId = http.User.GetUserId();
+        if (userId is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await identity.ConfirmMfaAsync(
+            userId.Value, request.CurrentPassword!, request.Code!, cancellationToken);
+        return result.Match(
+            codes => (IResult)Results.Ok(new MfaRecoveryCodesResponse(codes.Codes)),
+            error => error.Code switch
+            {
+                "auth.current_password_incorrect" => ValidationField(http, "currentPassword", error.Message),
+                "auth.mfa_code_invalid" or "auth.mfa_not_pending" or "auth.mfa_secret_unavailable" =>
+                    ValidationField(http, "code", error.Message),
+                _ => error.ToProblemResult(http),
+            });
+    }
+
+    private static async Task<IResult> MfaVerifyAsync(
+        MfaVerifyRequest request,
+        IIdentityApi identity,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrWhiteSpace(request.Challenge))
+        {
+            errors["challenge"] = ["The MFA challenge is required."];
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            errors["code"] = ["A code is required."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.Problem(StarterProblems.Validation(http, errors));
+        }
+
+        var result = await identity.VerifyMfaAsync(
+            request.Challenge!,
+            request.Code!,
+            DeviceLabel(request.DeviceLabel, http),
+            ClientIp(http),
+            cancellationToken);
+        // Every failure is the same generic 401, like login: the challenge or
+        // the code did not check out, with no distinction that could leak state.
+        return result.Match(
+            tokens => IssueTokenResponse(http, tokens),
+            error => error.ToProblemResult(http));
+    }
+
+    private static async Task<IResult> MfaDisableAsync(
+        MfaDisableRequest request,
+        IIdentityApi identity,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            return ValidationField(http, "code", "A verification code is required.");
+        }
+
+        var userId = http.User.GetUserId();
+        if (userId is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await identity.DisableMfaAsync(userId.Value, request.Code!, cancellationToken);
+        return result.Match(
+            () => (IResult)Results.NoContent(),
+            error => error.Code switch
+            {
+                "auth.mfa_code_invalid" or "auth.mfa_not_enabled" => ValidationField(http, "code", error.Message),
+                _ => error.ToProblemResult(http),
+            });
+    }
+
+    private static async Task<IResult> MfaRecoveryCodesAsync(
+        MfaRecoveryCodesRequest request,
+        IIdentityApi identity,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            return ValidationField(http, "code", "A verification code is required.");
+        }
+
+        var userId = http.User.GetUserId();
+        if (userId is null)
+        {
+            return TypedResults.Problem(StarterProblems.Unauthorized(http));
+        }
+
+        var result = await identity.RegenerateRecoveryCodesAsync(userId.Value, request.Code!, cancellationToken);
+        return result.Match(
+            codes => (IResult)Results.Ok(new MfaRecoveryCodesResponse(codes.Codes)),
+            error => error.Code switch
+            {
+                "auth.mfa_code_invalid" or "auth.mfa_not_enabled" => ValidationField(http, "code", error.Message),
+                _ => error.ToProblemResult(http),
+            });
+    }
+
+    private static ProblemHttpResult ValidationField(HttpContext http, string field, string message) =>
+        TypedResults.Problem(StarterProblems.Validation(
+            http, new Dictionary<string, string[]> { [field] = [message] }));
+
     private static ProblemHttpResult ToValidationProblem(HttpContext http, Starter.SharedKernel.Error error)
     {
         // Module validation failures name exactly one wire field; carry it
@@ -503,3 +689,27 @@ public sealed record VerifyEmailResponse(bool Verified);
 
 /// <summary>GET /auth/verify-email/{token} body: render-only token state.</summary>
 public sealed record VerificationStatusResponse(string Status);
+
+/// <summary>POST /auth/mfa/enroll body: the step-up current password.</summary>
+public sealed record MfaEnrollRequest(string? CurrentPassword);
+
+/// <summary>POST /auth/mfa/confirm body: the step-up current password plus a code from the authenticator.</summary>
+public sealed record MfaConfirmRequest(string? CurrentPassword, string? Code);
+
+/// <summary>POST /auth/mfa/verify body: the login challenge token plus a TOTP or recovery code.</summary>
+public sealed record MfaVerifyRequest(string? Challenge, string? Code, string? DeviceLabel);
+
+/// <summary>POST /auth/mfa/disable body: a fresh TOTP or recovery code.</summary>
+public sealed record MfaDisableRequest(string? Code);
+
+/// <summary>POST /auth/mfa/recovery-codes body: a fresh TOTP code authorizing regeneration.</summary>
+public sealed record MfaRecoveryCodesRequest(string? Code);
+
+/// <summary>POST /auth/mfa/enroll success: the provisioning URI and base32 secret, shown once.</summary>
+public sealed record MfaEnrollResponse(string OtpauthUri, string Secret);
+
+/// <summary>The recovery codes returned at confirm and on regeneration, shown once.</summary>
+public sealed record MfaRecoveryCodesResponse(IReadOnlyList<string> RecoveryCodes);
+
+/// <summary>The MFA-required login response: the caller must exchange the challenge at /mfa/verify.</summary>
+public sealed record MfaChallengeResponse(bool MfaRequired, string Challenge, int ExpiresIn);

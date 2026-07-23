@@ -29,11 +29,17 @@ public interface IIdentityApi : ITenantProvisioningIdentity, IUserDirectory
     Task<Result> RegisterAsync(string email, string password, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Login: verifies the password credential and issues an
-    /// ES256 access JWT plus a fresh refresh-token family. Every failure
-    /// is the same Unauthorized error.
+    /// Login: verifies the password credential and returns a
+    /// <see cref="LoginOutcome"/>. A plain account gets
+    /// <see cref="LoginOutcome.Tokens"/> (an ES256 access JWT plus a fresh
+    /// refresh-token family), exactly as before. An account with confirmed MFA
+    /// gets <see cref="LoginOutcome.MfaChallenge"/> instead: the password
+    /// proved the first factor, but no session issues until
+    /// <see cref="VerifyMfaAsync"/> exchanges the challenge plus a code
+    /// (mfa-totp.md section 5). Every credential failure is the same
+    /// Unauthorized error.
     /// </summary>
-    Task<Result<IssuedTokens>> LoginAsync(
+    Task<Result<LoginOutcome>> LoginAsync(
         string email,
         string password,
         string? deviceLabel,
@@ -151,6 +157,65 @@ public interface IIdentityApi : ITenantProvisioningIdentity, IUserDirectory
     /// row is false.
     /// </summary>
     Task<bool> IsEmailVerifiedAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// MFA enrollment (mfa-totp.md section 4). Authenticated + a fresh current
+    /// password (step-up, security-equivalent to changing a password): mints a
+    /// 20-byte secret, stores it encrypted and UNCONFIRMED, and returns the
+    /// otpauth URI + base32 secret (shown once). Does NOT yet enable MFA. A
+    /// wrong current password is the generic auth.current_password_incorrect
+    /// Validation failure; a re-enroll leaves an already-active secret intact.
+    /// </summary>
+    Task<Result<MfaEnrollment>> EnrollMfaAsync(
+        Guid userId,
+        string currentPassword,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// MFA confirmation (mfa-totp.md section 4). Authenticated + a fresh
+    /// current password + a code from the authenticator: verifies the code
+    /// against the pending secret, enables MFA, and returns 10 recovery codes
+    /// (shown once, stored hashed). A wrong current password fails
+    /// auth.current_password_incorrect; a wrong code fails auth.mfa_code_invalid
+    /// and does not confirm.
+    /// </summary>
+    Task<Result<MfaRecoveryCodes>> ConfirmMfaAsync(
+        Guid userId,
+        string currentPassword,
+        string code,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The second step of an MFA login (mfa-totp.md section 5): exchanges a
+    /// valid challenge token plus a TOTP or recovery code for the real session
+    /// (tenant-less, like a normal login). Verifies are brute-force throttled
+    /// per user; a burned recovery code never works again. Every failure is
+    /// the same Unauthorized error.
+    /// </summary>
+    Task<Result<IssuedTokens>> VerifyMfaAsync(
+        string challengeToken,
+        string code,
+        string? deviceLabel,
+        string? ipAddress,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Disable MFA (mfa-totp.md section 7). Authenticated + a fresh TOTP or
+    /// recovery code: re-proving the second factor deletes the credential and
+    /// all recovery codes, and login reverts to one step. A wrong code fails
+    /// auth.mfa_code_invalid.
+    /// </summary>
+    Task<Result> DisableMfaAsync(Guid userId, string code, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Regenerate recovery codes (mfa-totp.md section 6). Authenticated + a
+    /// fresh TOTP code: replaces all prior codes with a new set of 10 (shown
+    /// once, stored hashed). A wrong code fails auth.mfa_code_invalid.
+    /// </summary>
+    Task<Result<MfaRecoveryCodes>> RegenerateRecoveryCodesAsync(
+        Guid userId,
+        string code,
+        CancellationToken cancellationToken);
 
     // StageRegistrationAsync, SendVerificationEmailAsync, and IssueSessionForAsync
     // are inherited from ITenantProvisioningIdentity (the platform-declared

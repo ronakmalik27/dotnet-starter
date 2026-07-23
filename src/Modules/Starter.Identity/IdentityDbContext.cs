@@ -27,6 +27,10 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
 
     public DbSet<OneTimeToken> OneTimeTokens => Set<OneTimeToken>();
 
+    public DbSet<MfaCredential> MfaCredentials => Set<MfaCredential>();
+
+    public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -86,6 +90,23 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
             session.Property(s => s.DeviceLabel).HasMaxLength(200);
             session.Property(s => s.Ip).HasMaxLength(64);
             session.HasOne<User>().WithMany().HasForeignKey(s => s.UserId);
+        });
+
+        modelBuilder.Entity<MfaCredential>(mfa =>
+        {
+            // One enrollment per user: the user id IS the primary key
+            // (global-user credential, like the password - no tenant, no RLS).
+            mfa.HasKey(m => m.UserId);
+            mfa.Property(m => m.FailedAttempts).HasDefaultValue(0);
+            mfa.HasOne<User>().WithMany().HasForeignKey(m => m.UserId);
+        });
+
+        modelBuilder.Entity<MfaRecoveryCode>(code =>
+        {
+            code.Property(c => c.CodeHash).HasMaxLength(64);
+            // The verify lookup path: the caller's live codes by hash.
+            code.HasIndex(c => new { c.UserId, c.CodeHash });
+            code.HasOne<User>().WithMany().HasForeignKey(c => c.UserId);
         });
     }
 }

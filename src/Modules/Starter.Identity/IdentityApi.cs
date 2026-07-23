@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Starter.Identity.ChangePassword;
 using Starter.Identity.GoogleSignIn;
 using Starter.Identity.Login;
+using Starter.Identity.Mfa;
 using Starter.Identity.PasswordReset;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
@@ -37,12 +38,17 @@ internal sealed class IdentityApi(
     IssueSessionForHandler issueSessionFor,
     SelectTenantHandler selectTenant,
     IssueImpersonationTokenHandler issueImpersonationToken,
+    EnrollMfaHandler enrollMfa,
+    ConfirmMfaHandler confirmMfa,
+    VerifyMfaHandler verifyMfa,
+    DisableMfaHandler disableMfa,
+    RegenerateRecoveryCodesHandler regenerateRecoveryCodes,
     UserDirectoryQuery userDirectory) : IIdentityApi
 {
     public Task<Result> RegisterAsync(string email, string password, CancellationToken cancellationToken) =>
         register.HandleAsync(email, password, cancellationToken);
 
-    public Task<Result<IssuedTokens>> LoginAsync(
+    public Task<Result<LoginOutcome>> LoginAsync(
         string email,
         string password,
         string? deviceLabel,
@@ -97,6 +103,36 @@ internal sealed class IdentityApi(
 
     public Task<bool> IsEmailVerifiedAsync(Guid userId, CancellationToken cancellationToken) =>
         verifiedEmail.IsVerifiedAsync(userId, cancellationToken);
+
+    public Task<Result<MfaEnrollment>> EnrollMfaAsync(
+        Guid userId,
+        string currentPassword,
+        CancellationToken cancellationToken) =>
+        enrollMfa.HandleAsync(userId, currentPassword, cancellationToken);
+
+    public Task<Result<MfaRecoveryCodes>> ConfirmMfaAsync(
+        Guid userId,
+        string currentPassword,
+        string code,
+        CancellationToken cancellationToken) =>
+        confirmMfa.HandleAsync(userId, currentPassword, code, cancellationToken);
+
+    public Task<Result<IssuedTokens>> VerifyMfaAsync(
+        string challengeToken,
+        string code,
+        string? deviceLabel,
+        string? ipAddress,
+        CancellationToken cancellationToken) =>
+        verifyMfa.HandleAsync(challengeToken, code, deviceLabel, ipAddress, cancellationToken);
+
+    public Task<Result> DisableMfaAsync(Guid userId, string code, CancellationToken cancellationToken) =>
+        disableMfa.HandleAsync(userId, code, cancellationToken);
+
+    public Task<Result<MfaRecoveryCodes>> RegenerateRecoveryCodesAsync(
+        Guid userId,
+        string code,
+        CancellationToken cancellationToken) =>
+        regenerateRecoveryCodes.HandleAsync(userId, code, cancellationToken);
 
     public Task<Result<StagedRegistration>> StageRegistrationAsync(
         DbConnection sharedConnection,

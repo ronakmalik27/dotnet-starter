@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using Starter.Identity.ChangePassword;
 using Starter.Identity.GoogleSignIn;
 using Starter.Identity.Login;
+using Starter.Identity.Mfa;
 using Starter.Identity.Notifications;
 using Starter.Identity.PasswordReset;
 using Starter.Identity.Passwords;
@@ -55,6 +56,14 @@ public static class IdentityModule
             new AccessTokenIssuer(signingKey, provider.GetRequiredService<IPolicyDefaults>()));
         services.AddSingleton<BreachedPasswordSet>();
         services.AddSingleton<PasswordPolicy>();
+
+        // The MFA challenge-token mint/validate holds the ES256 signing key
+        // (like AccessTokenIssuer) and no per-request state, so it is a
+        // singleton. The secret protector wraps the app-wide
+        // IDataProtectionProvider (registered by AddPlatformDataProtection),
+        // resolved per scope.
+        services.AddSingleton(new MfaChallengeTokens(signingKey));
+        services.AddScoped<MfaSecretProtector>();
 
         // Google OIDC: discovery metadata is a caching singleton;
         // the code exchange rides a typed HttpClient (factory-managed
@@ -120,6 +129,11 @@ public static class IdentityModule
         services.AddScoped<ResendVerificationHandler>();
         services.AddScoped<VerifiedEmailQuery>();
         services.AddScoped<UserDirectoryQuery>();
+        services.AddScoped<EnrollMfaHandler>();
+        services.AddScoped<ConfirmMfaHandler>();
+        services.AddScoped<VerifyMfaHandler>();
+        services.AddScoped<DisableMfaHandler>();
+        services.AddScoped<RegenerateRecoveryCodesHandler>();
         services.AddScoped<IIdentityApi, IdentityApi>();
 
         // Bridge the platform-declared ports to the same IIdentityApi instance,
