@@ -31,6 +31,8 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
 
     public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
 
+    public DbSet<SsoLoginState> SsoLoginStates => Set<SsoLoginState>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -53,11 +55,27 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
             // of each kind per user, and an OIDC subject binds to exactly
             // one account.
             method.HasIndex(m => new { m.UserId, m.Kind }).IsUnique();
-            method.HasIndex(m => new { m.Kind, m.ProviderSubject }).IsUnique();
+            // The subject-uniqueness index is SPLIT by whether the row carries an
+            // issuer (sso-and-scim.md section 2, the CRITICAL cross-IdP takeover fix):
+            //  - non-SSO methods (issuer IS NULL: password with a null subject, and
+            //    google under its single globally-trusted issuer) keep the original
+            //    two-column (kind, provider_subject) uniqueness;
+            //  - SSO methods (issuer IS NOT NULL) are unique on (kind, issuer,
+            //    provider_subject), so one tenant's IdP can never collide with - or
+            //    be matched as - another's subject, and two tenants' IdPs assigning
+            //    the same sub to different people no longer fail provisioning.
+            method.HasIndex(m => new { m.Kind, m.ProviderSubject })
+                .IsUnique()
+                .HasFilter("issuer IS NULL");
+            method.HasIndex(m => new { m.Kind, m.Issuer, m.ProviderSubject })
+                .IsUnique()
+                .HasFilter("issuer IS NOT NULL")
+                .HasDatabaseName("ix_auth_methods_kind_issuer_provider_subject");
             // Google subs are numeric strings today, but the OIDC spec caps
             // sub at 255 ASCII characters - size to the spec, not the
-            // current issuer behavior.
+            // current issuer behavior. The issuer is an https URL (authority).
             method.Property(m => m.ProviderSubject).HasMaxLength(255);
+            method.Property(m => m.Issuer).HasMaxLength(2048);
             // Lockout state on the password credential
             // (role-templates-and-policy-defaults.md section 4): failed_attempts
             // defaults to 0, locked_until is null until the threshold is crossed.
@@ -107,6 +125,21 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
             // The verify lookup path: the caller's live codes by hash.
             code.HasIndex(c => new { c.UserId, c.CodeHash });
             code.HasOne<User>().WithMany().HasForeignKey(c => c.UserId);
+        });
+
+        modelBuilder.Entity<SsoLoginState>(state =>
+        {
+            state.Property(s => s.StateHash).HasMaxLength(64);
+            state.Property(s => s.Nonce).HasMaxLength(128);
+            state.Property(s => s.CodeVerifier).HasMaxLength(128);
+            state.Property(s => s.RedirectUri).HasMaxLength(2048);
+            // The callback lookup keys on the state hash; unique within the live
+            // (unconsumed) set so two live states can never share a hash - the same
+            // shape as one_time_tokens.
+            state.HasIndex(s => s.StateHash).IsUnique().HasFilter("used_at IS NULL");
+            // A global Identity table like sessions/users: no tenant ownership and no
+            // RLS. The tenant_id it carries is data (the ONLY tenant source at
+            // callback), not an ownership discriminator, so no FK and no query filter.
         });
     }
 }

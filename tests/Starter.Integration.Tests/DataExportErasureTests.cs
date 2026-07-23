@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Starter.Integration.Tests.Fixtures;
@@ -226,7 +227,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         var cancellationToken = TestContext.Current.CancellationToken;
 
         // The completeness mechanism is real (not vacuous): reflection over the
-        // ITenantOwned types finds the [Sensitive] columns - the two known today.
+        // ITenantOwned types finds the [Sensitive] columns - the three known today.
         var assemblies = fixture.Factory.Services.GetServices<ITenantErasureContributor>()
             .Select(contributor => contributor.GetType().Assembly)
             .Append(typeof(ITenantErasureContributor).Assembly);
@@ -234,6 +235,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         sensitive.ShouldNotBeEmpty("the [Sensitive] reflection scan must find the secret columns, or it is vacuous");
         sensitive.ShouldContain("key_hash");
         sensitive.ShouldContain("signing_secret_encrypted");
+        sensitive.ShouldContain("client_secret_encrypted");
 
         var admin = await PlatformWorkflow.SignupPlatformAdminAsync(fixture, cancellationToken);
         var owner = await TenantWorkflow.SignupOwnerAsync(fixture, cancellationToken);
@@ -241,6 +243,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
 
         var keyHash = KeyHashSentinel(owner.TenantId);
         var webhookSecret = WebhookSecretSentinel(owner.TenantId);
+        var ssoSecret = SsoClientSecretSentinel(owner.TenantId);
 
         // The export bundle carries the shaped sections but never the secret values.
         var export = await TenantWorkflow.GetAsync(fixture, "/api/v1/tenant/export", owner.Token, cancellationToken);
@@ -248,6 +251,7 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
         var bundle = await export.Content.ReadAsStringAsync(cancellationToken);
         bundle.ShouldNotContain(keyHash);
         bundle.ShouldNotContain(webhookSecret);
+        bundle.ShouldNotContain(ssoSecret);
 
         // The operator snapshot captures the raw rows (secret columns present but
         // REDACTED), never the secret values.
@@ -259,9 +263,11 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
 
         snapshot.ShouldNotContain(keyHash);
         snapshot.ShouldNotContain(webhookSecret);
+        snapshot.ShouldNotContain(ssoSecret);
         // The snapshot did capture those tables and redacted the secret columns by name.
         snapshot.ShouldContain("service_accounts");
         snapshot.ShouldContain("webhook_endpoints");
+        snapshot.ShouldContain("sso_configs");
         snapshot.ShouldContain("[REDACTED]");
     }
 
@@ -347,6 +353,20 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
             ("id", Guid.CreateVersion7()),
             ("t", owner.TenantId),
             ("u", owner.UserId));
+
+        // A tenancy.sso_configs row whose client_secret_encrypted is the third
+        // [Sensitive] column: seed a per-tenant sentinel, DataProtection-encrypted
+        // through the host's own provider (purpose "identity.sso.client-secret.v1"),
+        // so a leak of the plaintext into the export bundle or the operator snapshot
+        // is detectable.
+        await PlatformWorkflow.ExecuteAsync(
+            fixture,
+            "insert into tenancy.sso_configs "
+            + "(tenant_id, issuer, client_id, client_secret_encrypted, enabled, created_at, updated_at) "
+            + "values (@t, 'https://idp.seed.example', 'seed-client', @secret, true, now(), now())",
+            cancellationToken,
+            ("t", owner.TenantId),
+            ("secret", EncryptSsoSecret(SsoClientSecretSentinel(owner.TenantId))));
     }
 
     // --- helpers ---------------------------------------------------------
@@ -354,6 +374,21 @@ public sealed class DataExportErasureTests(StarterAppFixture fixture)
     private static string KeyHashSentinel(Guid tenantId) => $"SENTINEL_KEYHASH_{tenantId:N}";
 
     private static string WebhookSecretSentinel(Guid tenantId) => $"SENTINEL_WEBHOOKSECRET_{tenantId:N}";
+
+    private static string SsoClientSecretSentinel(Guid tenantId) => $"SENTINEL_SSOSECRET_{tenantId:N}";
+
+    /// <summary>
+    /// Encrypts an SSO client-secret sentinel with the host's own DataProtection
+    /// provider (purpose "identity.sso.client-secret.v1"), the same shape the admin
+    /// config-save path uses, so the stored ciphertext is what the [Sensitive]
+    /// redaction must keep out of both artifacts.
+    /// </summary>
+    private string EncryptSsoSecret(string plaintext)
+    {
+        using var scope = fixture.Factory.Services.CreateScope();
+        var provider = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>();
+        return provider.CreateProtector("identity.sso.client-secret.v1").Protect(plaintext);
+    }
 
     private List<TenantTable> DeclaredTables() =>
         fixture.Factory.Services.GetServices<ITenantErasureContributor>()

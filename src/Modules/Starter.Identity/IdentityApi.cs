@@ -8,6 +8,7 @@ using Starter.Identity.PasswordReset;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
 using Starter.Identity.SetPassword;
+using Starter.Identity.Sso;
 using Starter.Identity.Tokens;
 using Starter.Identity.Verification;
 using Starter.Platform.Auth;
@@ -43,6 +44,8 @@ internal sealed class IdentityApi(
     VerifyMfaHandler verifyMfa,
     DisableMfaHandler disableMfa,
     RegenerateRecoveryCodesHandler regenerateRecoveryCodes,
+    SsoStartHandler ssoStart,
+    SsoCallbackHandler ssoCallback,
     UserDirectoryQuery userDirectory) : IIdentityApi
 {
     public Task<Result> RegisterAsync(string email, string password, CancellationToken cancellationToken) =>
@@ -160,6 +163,23 @@ internal sealed class IdentityApi(
         int? sessionMaxSeconds,
         CancellationToken cancellationToken) =>
         selectTenant.HandleAsync(userId, sessionId, tenantId, sessionMaxSeconds, cancellationToken);
+
+    public Task<Result<(string AuthorizeUrl, string State)>> StartSsoAsync(
+        string? email,
+        Guid? tenantId,
+        Guid? callerUserId,
+        string redirectUri,
+        CancellationToken cancellationToken) =>
+        ssoStart.HandleAsync(email, tenantId, callerUserId, redirectUri, cancellationToken);
+
+    public Task<Result<IssuedTokens>> CompleteSsoAsync(
+        string state,
+        string code,
+        string? stateCookie,
+        string? deviceLabel,
+        string? ipAddress,
+        CancellationToken cancellationToken) =>
+        ssoCallback.HandleAsync(state, code, stateCookie, deviceLabel, ipAddress, cancellationToken);
 
     public Task<Result<TenantAccessToken>> IssueImpersonationTokenAsync(
         Guid subjectUserId,

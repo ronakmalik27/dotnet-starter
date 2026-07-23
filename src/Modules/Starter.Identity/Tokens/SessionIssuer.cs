@@ -36,6 +36,7 @@ internal sealed class SessionIssuer(
         string? deviceLabel,
         string? ipAddress,
         DateTimeOffset now,
+        int? tenantSessionMaxSeconds,
         CancellationToken cancellationToken)
     {
         // The refresh-family lifetime is the install-wide platform default
@@ -90,12 +91,15 @@ internal sealed class SessionIssuer(
             }
         }
 
-        // The session issue path (login and self-serve signup) never tightens the
-        // tid lifetime: a plain login is tenant-less, and a fresh signup's tenant
-        // has no override yet. So no tenant override is resolved here; the reported
-        // expires_in is exactly the lifetime the minted token carries.
+        // Login and self-serve signup pass a null override (a plain login is
+        // tenant-less; a fresh signup's tenant has none yet), so they inherit the
+        // platform default. The SSO callback resolves and passes the tenant's
+        // session-lifetime override (sso-and-scim.md section 4.4), so an enterprise
+        // customer's tightened tid lifetime applies to its SSO logins too; the
+        // issuer applies min(platform default, override) and returns the lifetime the
+        // token carries, so the reported expires_in matches exp exactly.
         var accessToken = await accessTokens.IssueAsync(
-            user.Id, session.Id, user.TokenVersion, now, tenantId, tenantSessionMaxSeconds: null, cancellationToken);
+            user.Id, session.Id, user.TokenVersion, now, tenantId, tenantSessionMaxSeconds, cancellationToken);
         return new IssuedTokens(
             user.Id,
             session.Id,

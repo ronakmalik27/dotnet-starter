@@ -706,7 +706,11 @@ rewrite:
   the one-time tokens, carrying scoped grants (section 13) instead of a session.
   DESIGNED and being built out - see [service-accounts.md](service-accounts.md).
 - **SSO (SAML / OIDC) and SCIM provisioning**: a per-tenant identity-provider
-  config; SCIM maps directory groups to teams (section 14) and roles.
+  config; SCIM maps directory groups to teams (section 14) and roles. Built as an
+  integration SEAM - a correct minimal OIDC sign-in over a per-tenant configured IdP
+  (with JIT provisioning) plus a SCIM 2.0 Users skeleton whose deprovision drives the
+  offboarding path; SAML and the full SCIM surface (Groups, PATCH, filtering) are
+  documented grow-into. DESIGNED and being built out - see [sso-and-scim.md](sso-and-scim.md).
 - **MFA / TOTP**: an Identity add-on on the sign-in path (RFC 6238 TOTP second
   factor, two-step login, recovery codes, secret encrypted at rest); no tenancy
   change. DESIGNED and being built out - see [mfa-totp.md](mfa-totp.md).

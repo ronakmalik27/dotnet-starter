@@ -534,6 +534,27 @@ internal static class TenancyEvents
         };
 
     /// <summary>
+    /// tenancy.sso.configured: an admin set or changed the tenant's enterprise-SSO
+    /// configuration or claimed a routing domain (sso-and-scim.md section 6).
+    /// Tenant-scoped, audited, and webhook-deliverable, so an SSO configuration
+    /// change is on the record. The client secret is NEVER on the payload - it is
+    /// write-only and stored only encrypted.
+    /// </summary>
+    public static DomainEventRecord SsoConfigured(
+        Guid tenantId,
+        Guid actorUserId,
+        DateTimeOffset now) => new()
+        {
+            Id = Ids.NewId(now),
+            OccurredAt = now,
+            Module = Module,
+            EventType = "tenancy.sso.configured",
+            EntityId = tenantId,
+            ActorUserId = actorUserId,
+            Payload = JsonSerializer.Serialize(new { }, Json),
+        };
+
+    /// <summary>
     /// tenancy.service_account.rotated: an admin rotated a service account's key,
     /// so the old secret stopped working immediately (service-accounts.md section
     /// 7). Actor is the admin; no payload beyond the entity - the new key is never

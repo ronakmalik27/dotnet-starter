@@ -43,6 +43,10 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
 
     public DbSet<ServiceAccount> ServiceAccounts => Set<ServiceAccount>();
 
+    public DbSet<SsoConfig> SsoConfigs => Set<SsoConfig>();
+
+    public DbSet<SsoDomainClaim> SsoDomainClaims => Set<SsoDomainClaim>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -209,6 +213,38 @@ internal sealed class TenancyDbContext(DbContextOptions<TenancyDbContext> option
             // The admin list is a tenant-scoped read (service-accounts.md section 5).
             account.HasIndex(a => a.TenantId);
             ApplyTenantFilter(account);
+        });
+
+        modelBuilder.Entity<SsoConfig>(config =>
+        {
+            // One IdP per tenant: the tenant's own id IS the primary key (a real
+            // stored tenant_id column, so - unlike tenancy.tenants - it is not
+            // ignored and the ordinary tenant filter/RLS policy key on it).
+            config.HasKey(c => c.TenantId);
+            config.Property(c => c.Issuer).HasColumnType("text");
+            config.Property(c => c.ClientId).HasColumnType("text");
+            config.Property(c => c.ClientSecretEncrypted).HasColumnType("text");
+            ApplyTenantFilter(config);
+        });
+
+        modelBuilder.Entity<SsoDomainClaim>(claim =>
+        {
+            // citext domain: case-insensitive matching in the column type itself,
+            // so "Contoso.com" and "contoso.com" collide and no lookup can forget
+            // to normalize.
+            claim.Property(c => c.Domain).HasColumnType("citext");
+            // The GLOBAL unique index on the normalized domain (sso-and-scim.md
+            // section 2): a domain is claimable by at most ONE tenant, so a
+            // duplicate claim is a constraint violation the operator-approval
+            // process cannot silently miss - not merely a policy expectation. RLS
+            // governs visibility, not this constraint, so cross-tenant uniqueness is
+            // fine (the same shape as service_accounts.key_hash).
+            claim.HasIndex(c => c.Domain)
+                .IsUnique()
+                .HasDatabaseName("ix_sso_domain_claims_domain_unique");
+            // The admin list is a tenant-scoped read.
+            claim.HasIndex(c => c.TenantId);
+            ApplyTenantFilter(claim);
         });
     }
 }

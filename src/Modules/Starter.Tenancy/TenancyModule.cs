@@ -7,6 +7,7 @@ using Starter.Tenancy.Dsar;
 using Starter.Tenancy.Invitations;
 using Starter.Tenancy.Rbac;
 using Starter.Tenancy.ServiceAccounts;
+using Starter.Tenancy.Sso;
 using Starter.Platform.Auth;
 using Starter.Platform.Data;
 using Starter.Platform.Dsar;
@@ -96,6 +97,12 @@ public static class TenancyModule
         services.AddScoped<PlatformAdminService>();
         services.AddScoped<ImpersonationGrantReader>();
         services.AddScoped<TenantSessionPolicyReader>();
+        // Enterprise SSO (sso-and-scim.md sections 3, 4): the per-tenant config
+        // reader and the JIT membership provisioner are cross-tenant bypass-path
+        // slices (the caller holds no tid for the tenant yet), allowlisted by the
+        // bypass-containment arch test.
+        services.AddScoped<TenantSsoConfigReader>();
+        services.AddScoped<SsoMembershipProvisioner>();
 
         // Request-path (RLS-bound) slices.
         services.AddScoped<TenantRoleResolver>();
@@ -105,6 +112,12 @@ public static class TenancyModule
         services.AddScoped<TeamService>();
         services.AddScoped<ServiceAccountService>();
         services.AddScoped<TenantAdminService>();
+        // The tenant-admin SSO config write path (settings:manage), RLS-bound, plus
+        // the DataProtection protector for the write-only client secret (purpose
+        // "identity.sso.client-secret.v1"; wraps the app-wide IDataProtectionProvider
+        // registered by AddPlatformDataProtection, so it stays module-boundary clean).
+        services.AddScoped<SsoConfigService>();
+        services.AddScoped<SsoClientSecretProtector>();
 
         services.AddScoped<ITenancyApi, TenancyApi>();
 
@@ -124,6 +137,8 @@ public static class TenancyModule
         services.AddScoped<IDataExportContributor, TenancyExportContributors.RoleAssignments>();
         services.AddScoped<IDataExportContributor, TenancyExportContributors.Invitations>();
         services.AddScoped<IDataExportContributor, TenancyExportContributors.ServiceAccounts>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.SsoConfiguration>();
+        services.AddScoped<IDataExportContributor, TenancyExportContributors.SsoDomainClaims>();
         services.AddSingleton<ITenantErasureContributor, TenancyErasureContributor>();
 
         // Bridge the platform-declared role-reader port (used by the layer-3
@@ -156,6 +171,16 @@ public static class TenancyModule
         // tenancy.tenants table (role-templates-and-policy-defaults.md section 5).
         services.AddScoped<ITenantSessionPolicyReader>(
             provider => provider.GetRequiredService<TenantSessionPolicyReader>());
+
+        // Bridge the platform-declared SSO ports (consumed by the Identity module's
+        // OIDC flow) to the bypass-path Tenancy implementations, so Identity never
+        // references this module or the tenancy.sso_* tables (sso-and-scim.md
+        // sections 4, 7): the per-tenant config/domain reader and the JIT membership
+        // provisioner.
+        services.AddScoped<ITenantSsoConfigReader>(
+            provider => provider.GetRequiredService<TenantSsoConfigReader>());
+        services.AddScoped<ITenantSsoProvisioner>(
+            provider => provider.GetRequiredService<SsoMembershipProvisioner>());
 
         return services;
     }

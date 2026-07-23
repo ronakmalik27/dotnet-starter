@@ -49,6 +49,9 @@ internal static class DeliverableEvents
         "tenancy.service_account.created",
         "tenancy.service_account.rotated",
         "tenancy.service_account.revoked",
+        // enterprise SSO config / domain-claim changes (sso-and-scim.md section 6):
+        // tenant-scoped, so audited AND webhook-deliverable like the rest.
+        "tenancy.sso.configured",
         // webhook endpoint lifecycle (webhooks.md section 8): defined in Platform
         // (WebhookEvents) because the feature cannot reference the Tenancy module, but
         // tenant-scoped like the rest.

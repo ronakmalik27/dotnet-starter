@@ -20,8 +20,20 @@ internal sealed class AuthMethod
     /// </summary>
     public string? PasswordHash { get; set; }
 
-    /// <summary>The OIDC subject for kind=google; null for password.</summary>
+    /// <summary>The OIDC subject for kind=google and kind=sso; null for password.</summary>
     public string? ProviderSubject { get; init; }
+
+    /// <summary>
+    /// The OIDC issuer for kind=sso; null for password and google (sso-and-scim.md
+    /// section 2). This is the CRITICAL auth-boundary column: kind=sso is SHARED
+    /// across every tenant's independently-configured, tenant-controlled IdP, so a
+    /// returning SSO user is matched on <c>(kind=sso, issuer, provider_subject)</c>,
+    /// never on the subject alone - a malicious tenant's own IdP asserting a
+    /// victim's sub validates every per-token check yet cannot match, because its
+    /// issuer differs. Google keeps its single-globally-trusted-issuer match on
+    /// <c>(kind, provider_subject)</c> and stores issuer null.
+    /// </summary>
+    public string? Issuer { get; init; }
 
     /// <summary>
     /// Set when the method is disabled without being deleted. Today only
@@ -57,4 +69,12 @@ internal static class AuthMethodKind
     public const string Password = "password";
 
     public const string Google = "google";
+
+    /// <summary>
+    /// Enterprise SSO via a per-tenant OIDC IdP (sso-and-scim.md). Unlike google
+    /// (a single globally-trusted issuer), sso is shared across every tenant's own
+    /// IdP, so its rows carry <see cref="AuthMethod.Issuer"/> and match on
+    /// <c>(kind, issuer, provider_subject)</c>.
+    /// </summary>
+    public const string Sso = "sso";
 }

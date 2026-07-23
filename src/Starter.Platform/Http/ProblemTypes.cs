@@ -330,6 +330,22 @@ public static class ProblemTypes
     /// </summary>
     public const string LinkConfirmationRequired = "starter:link-confirmation-required";
 
+    /// <summary>
+    /// 409: an SSO routing domain is already claimed by a tenant (sso-and-scim.md
+    /// sections 2, 3). The GLOBAL unique index on the normalized domain makes a
+    /// domain claimable by at most one tenant; a duplicate claim (by any tenant) is a
+    /// definite, non-secret refusal. Distinct from a slug conflict.
+    /// </summary>
+    public const string SsoDomainClaimed = "starter:sso-domain-claimed";
+
+    /// <summary>
+    /// 422: an SSO config save was rejected because the issuer is not an absolute
+    /// https URL (sso-and-scim.md section 3). A plain-http issuer weakens the
+    /// discovery/JWKS fetch to network tampering, so it is refused at save time (the
+    /// loopback exception stays confined to the test host's IdP metadata).
+    /// </summary>
+    public const string SsoIssuerInsecure = "starter:sso-issuer-insecure";
+
     /// <summary>500: an unexpected server fault; details stay in the logs.</summary>
     public const string Internal = "starter:internal";
 

@@ -24,6 +24,12 @@ internal sealed class TenancyErasureContributor : ITenantErasureContributor
         new("tenancy.roles", "tenant_id"),
         new("tenancy.invitations", "tenant_id"),
         new("tenancy.service_accounts", "tenant_id"),
+        // Enterprise SSO (sso-and-scim.md sections 2, 7): both tenant-owned, no FK
+        // into the rest of the set, so they purge anywhere before tenancy.tenants.
+        // sso_configs' client_secret_encrypted is [Sensitive] - redacted in the
+        // operator snapshot by the reflection-driven completeness mechanism.
+        new("tenancy.sso_configs", "tenant_id"),
+        new("tenancy.sso_domain_claims", "tenant_id"),
         new("tenancy.memberships", "tenant_id"),
         new("tenancy.workspaces", "tenant_id"),
         // The tenant boundary itself, keyed on its own id, deleted LAST.

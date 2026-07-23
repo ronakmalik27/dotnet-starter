@@ -60,6 +60,13 @@ public class BypassDataSourceContainmentTests
     //   session_max_seconds override at select-tenant / refresh, before the caller
     //   holds a request-scoped tid for it, so the read crosses the boundary exactly
     //   like the membership directory - role-templates-and-policy-defaults.md section 5).
+    // - the SSO config reader (the domain-routing and config lookups run before any
+    //   tenant context - /auth/sso/start derives the tenant FROM the email domain,
+    //   and /auth/sso/callback takes it only from the state record - so both cross
+    //   the boundary, exactly like the session-policy reader);
+    // - the SSO membership provisioner (JIT-provisions a membership into the SSO
+    //   tenant before the user holds any tid for it, exactly like the self-serve
+    //   provisioner and invitation accept establish one - sso-and-scim.md section 4).
     private static readonly string[] TenancyAllowlist =
     [
         "Starter.Tenancy.ControlPlane.TenantProvisioner",
@@ -70,6 +77,8 @@ public class BypassDataSourceContainmentTests
         "Starter.Tenancy.ControlPlane.PlatformAdminService",
         "Starter.Tenancy.ControlPlane.ImpersonationGrantReader",
         "Starter.Tenancy.ControlPlane.TenantSessionPolicyReader",
+        "Starter.Tenancy.ControlPlane.TenantSsoConfigReader",
+        "Starter.Tenancy.ControlPlane.SsoMembershipProvisioner",
     ];
 
     [Fact]

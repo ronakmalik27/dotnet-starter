@@ -40,6 +40,9 @@ internal sealed class IssueSessionForHandler(
             return UserUnavailable;
         }
 
-        return await sessions.IssueAsync(user, tenantId, deviceLabel, ipAddress, now, cancellationToken);
+        // Self-serve signup auto-login: the fresh tenant has no session-lifetime
+        // override yet, so null inherits the platform default.
+        return await sessions.IssueAsync(
+            user, tenantId, deviceLabel, ipAddress, now, tenantSessionMaxSeconds: null, cancellationToken);
     }
 }

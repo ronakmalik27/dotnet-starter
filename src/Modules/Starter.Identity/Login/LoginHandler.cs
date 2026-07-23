@@ -156,7 +156,8 @@ internal sealed class LoginHandler(
         // (the same method-agnostic issuance Google
         // sign-in rides). Login is tenant-less: the session binds no tenant, so
         // the access token carries no tid and the caller selects a tenant next.
-        var tokens = await sessions.IssueAsync(user, tenantId: null, deviceLabel, ipAddress, now, cancellationToken);
+        var tokens = await sessions.IssueAsync(
+            user, tenantId: null, deviceLabel, ipAddress, now, tenantSessionMaxSeconds: null, cancellationToken);
         return new LoginOutcome.Tokens(tokens);
     }
 }

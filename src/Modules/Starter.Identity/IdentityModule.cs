@@ -12,6 +12,7 @@ using Starter.Identity.Passwords;
 using Starter.Identity.Refresh;
 using Starter.Identity.Register;
 using Starter.Identity.SetPassword;
+using Starter.Identity.Sso;
 using Starter.Identity.Tokens;
 using Starter.Identity.Verification;
 using Starter.Platform.Auth;
@@ -81,6 +82,22 @@ public static class IdentityModule
         services.AddSingleton<GoogleOidcMetadata>();
         services.AddHttpClient<GoogleCodeExchanger>();
         services.AddScoped<GoogleIdTokenValidator>();
+
+        // Enterprise SSO / OIDC (sso-and-scim.md section 4), the Google-OIDC shape
+        // generalized to a per-tenant issuer read through the ITenantSsoConfigReader
+        // platform port. Discovery/JWKS metadata is a caching singleton keyed by
+        // issuer; the code exchange rides a typed HttpClient; the validator, state
+        // store, and the two flow handlers are scoped. The per-tenant config, the JIT
+        // membership, and the session-lifetime override are all resolved through
+        // platform ports the composition root bridges, so Identity never references
+        // Tenancy.
+        services.AddHttpClient(SsoOidcMetadata.HttpClientName);
+        services.AddSingleton<SsoOidcMetadata>();
+        services.AddHttpClient<SsoCodeExchanger>();
+        services.AddScoped<SsoIdTokenValidator>();
+        services.AddScoped<SsoStateStore>();
+        services.AddScoped<SsoStartHandler>();
+        services.AddScoped<SsoCallbackHandler>();
 
         // The verify-email link template (Auth:Verification) and the
         // password-reset link template (Auth:PasswordReset). Both guarded

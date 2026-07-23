@@ -258,6 +258,56 @@ internal static class TenancyExportContributors
         }
     }
 
+    /// <summary>The tenant's SSO configuration. The <c>client_secret_encrypted</c> is EXCLUDED (a credential column, section 8).</summary>
+    internal sealed class SsoConfiguration(TenancyDbContext db) : IDataExportContributor
+    {
+        public string Section => "ssoConfig";
+
+        public async Task<object?> ExportAsync(CancellationToken cancellationToken)
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var config = await db.SsoConfigs
+                .AsNoTracking()
+                .Select(row => new
+                {
+                    row.Issuer,
+                    row.ClientId,
+                    // ClientSecretEncrypted is deliberately absent (a [Sensitive] credential column).
+                    row.Enabled,
+                    row.CreatedAt,
+                    row.UpdatedAt,
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return config;
+        }
+    }
+
+    /// <summary>The tenant's SSO routing-domain claims.</summary>
+    internal sealed class SsoDomainClaims(TenancyDbContext db) : IDataExportContributor
+    {
+        public string Section => "ssoDomainClaims";
+
+        public async Task<object?> ExportAsync(CancellationToken cancellationToken)
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var rows = await db.SsoDomainClaims
+                .AsNoTracking()
+                .OrderBy(row => row.CreatedAt)
+                .ThenBy(row => row.Id)
+                .Select(row => new
+                {
+                    row.Id,
+                    row.Domain,
+                    row.VerifiedAt,
+                    row.CreatedAt,
+                })
+                .ToListAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return rows;
+        }
+    }
+
     /// <summary>The tenant's service accounts. The <c>key_hash</c> is EXCLUDED (a credential column, section 8).</summary>
     internal sealed class ServiceAccounts(TenancyDbContext db) : IDataExportContributor
     {

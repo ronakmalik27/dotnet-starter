@@ -2,6 +2,7 @@ using Starter.Tenancy.Admin;
 using Starter.Tenancy.ControlPlane;
 using Starter.Tenancy.Rbac;
 using Starter.Tenancy.ServiceAccounts;
+using Starter.Tenancy.Sso;
 using Starter.Platform.Auth;
 using Starter.Platform.Dsar;
 using Starter.SharedKernel;
@@ -27,6 +28,7 @@ internal sealed class TenancyApi(
     ApiKeyResolver apiKeys,
     TenantAdminService admin,
     InvitationAcceptor acceptor,
+    SsoConfigService sso,
     PlatformAdminDirectory platformAdmins,
     PlatformAdminService platform) : ITenancyApi
 {
@@ -417,4 +419,17 @@ internal sealed class TenancyApi(
     public Task<Result> RevokeServiceAccountAsync(
         Guid callerUserId, Guid serviceAccountId, CancellationToken cancellationToken) =>
         serviceAccounts.RevokeAsync(callerUserId, serviceAccountId, cancellationToken);
+
+    public Task<Result> SetSsoConfigAsync(
+        Guid callerUserId,
+        string issuer,
+        string clientId,
+        string clientSecret,
+        bool enabled,
+        CancellationToken cancellationToken) =>
+        sso.SetConfigAsync(callerUserId, issuer, clientId, clientSecret, enabled, cancellationToken);
+
+    public Task<Result<Guid>> ClaimSsoDomainAsync(
+        Guid callerUserId, string domain, CancellationToken cancellationToken) =>
+        sso.ClaimDomainAsync(callerUserId, domain, cancellationToken);
 }

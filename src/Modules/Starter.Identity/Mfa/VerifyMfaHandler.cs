@@ -79,7 +79,8 @@ internal sealed class VerifyMfaHandler(
         // The second factor is proven: issue the real session, tenant-less like
         // a normal login (the caller selects a tenant next, unchanged).
         var user = await db.Users.SingleAsync(candidate => candidate.Id == userId.Value, cancellationToken);
-        return await sessions.IssueAsync(user, tenantId: null, deviceLabel, ipAddress, now, cancellationToken);
+        return await sessions.IssueAsync(
+            user, tenantId: null, deviceLabel, ipAddress, now, tenantSessionMaxSeconds: null, cancellationToken);
     }
 
     private async Task<bool> TryTotpAsync(

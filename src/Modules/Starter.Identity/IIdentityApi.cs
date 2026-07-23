@@ -246,6 +246,44 @@ public interface IIdentityApi : ITenantProvisioningIdentity, IUserDirectory
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Initiates enterprise SSO (sso-and-scim.md section 4.1). Resolves the tenant
+    /// from <paramref name="email"/>'s verified domain claim or an explicit
+    /// <paramref name="tenantId"/>, loads its ENABLED OIDC config, stores a
+    /// single-use server-side state record (carrying the tenant, nonce, PKCE
+    /// verifier, <paramref name="redirectUri"/>, and <paramref name="callerUserId"/>
+    /// when /start ran authenticated), and returns the IdP authorize URL to redirect
+    /// to plus the raw state for the CSRF cookie. Every unroutable case (unverified/
+    /// unclaimed domain, no config, disabled, IdP unreachable) is one generic
+    /// NotFound (auth.sso_not_available), so a probe cannot map which tenants have SSO.
+    /// </summary>
+    Task<Result<(string AuthorizeUrl, string State)>> StartSsoAsync(
+        string? email,
+        Guid? tenantId,
+        Guid? callerUserId,
+        string redirectUri,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Completes enterprise SSO (sso-and-scim.md sections 4.2-4.4). Consumes the
+    /// single-use state (matched against <paramref name="stateCookie"/> for CSRF),
+    /// takes the tenant ONLY from that record, re-checks the config is enabled,
+    /// exchanges <paramref name="code"/>, validates the id_token (signature vs the
+    /// configured issuer's JWKS, iss, aud, exp/nbf, nonce, email_verified), then JIT
+    /// matches by (issuer, sub) / links-by-email / creates, ensures a membership in
+    /// the SSO tenant, and mints a tenant-bound session applying the tenant's
+    /// session-lifetime override. Every validation failure is one generic
+    /// Unauthorized (auth.sso_failed); a verified-email conflict with no signed-in
+    /// confirmation is auth.sso_link_confirmation_required.
+    /// </summary>
+    Task<Result<IssuedTokens>> CompleteSsoAsync(
+        string state,
+        string code,
+        string? stateCookie,
+        string? deviceLabel,
+        string? ipAddress,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Mints the SHORT impersonation access token for a platform-admin session
     /// (multi-tenancy.md section 7). Called only after the Tenancy control plane
     /// has committed the grant row and its ImpersonationStarted event, so a token

@@ -724,4 +724,36 @@ public interface ITenancyApi : ITenantRoleReader, IPermissionResolver
     /// </summary>
     Task<Result> RevokeServiceAccountAsync(
         Guid callerUserId, Guid serviceAccountId, CancellationToken cancellationToken);
+
+    // --- Enterprise SSO configuration (active tenant, request path under RLS) ---
+    // A tenant configures its own OIDC IdP and claims its routing domains through
+    // the tenant-admin API, gated by settings:manage (sso-and-scim.md section 3).
+    // The OIDC sign-in flow itself lives in the Identity module and reads this
+    // config through the ITenantSsoConfigReader platform port, never this facade.
+
+    /// <summary>
+    /// Sets (creates or replaces) the active tenant's enterprise-SSO configuration
+    /// (settings:manage). The issuer MUST be an absolute https URL (a non-https
+    /// issuer is refused, <c>tenancy.sso_issuer_insecure</c>, so the discovery/JWKS
+    /// fetch cannot be tampered with); the client secret is write-only, stored only
+    /// DataProtection-encrypted and never read back. Emits <c>tenancy.sso.configured</c>.
+    /// </summary>
+    Task<Result> SetSsoConfigAsync(
+        Guid callerUserId,
+        string issuer,
+        string clientId,
+        string clientSecret,
+        bool enabled,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Claims an email domain for the active tenant's SSO routing (settings:manage).
+    /// The claim is created UNVERIFIED and does not route until an operator approves
+    /// it (DNS-TXT self-verification is a grow-into). A domain already claimed by ANY
+    /// tenant is a Conflict (<c>tenancy.sso_domain_claimed</c>) on the global unique
+    /// index - a domain is claimable by at most one tenant. Returns the new claim id.
+    /// Emits <c>tenancy.sso.configured</c>.
+    /// </summary>
+    Task<Result<Guid>> ClaimSsoDomainAsync(
+        Guid callerUserId, string domain, CancellationToken cancellationToken);
 }

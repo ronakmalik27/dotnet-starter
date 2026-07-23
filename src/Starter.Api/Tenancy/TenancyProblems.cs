@@ -68,6 +68,13 @@ internal static class TenancyProblems
             ProblemTypes.ResourceQuotaReached,
             "You have reached your plan's workspace limit.",
             error.Message),
+        // A domain already claimed by ANY tenant (the global unique index): a
+        // definite, non-secret refusal.
+        "tenancy.sso_domain_claimed" => Conflict(
+            http, ProblemTypes.SsoDomainClaimed, "That domain is already claimed.", error.Message),
+        // A non-https SSO issuer refused at save (a security check, not a shape bug).
+        "tenancy.sso_issuer_insecure" => Unprocessable(
+            http, ProblemTypes.SsoIssuerInsecure, "The SSO issuer must be an https URL.", error.Message),
         _ => error.ToProblemResult(http),
     };
 

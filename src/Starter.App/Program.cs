@@ -439,7 +439,16 @@ app.MapHealthChecks("/readyz", new HealthCheckOptions { Predicate = registration
 if (postgres is not null)
 {
     app.MapIdentityEndpoints();
+    // Enterprise SSO / OIDC sign-in (sso-and-scim.md section 4): the SP-initiated
+    // start + callback, anonymous like login (/api/v1/auth/sso). Reads the
+    // per-tenant config and JIT-provisions membership through platform ports the
+    // module registrations bridge, so Identity never references Tenancy.
+    app.MapSsoEndpoints();
     app.MapTenancyEndpoints();
+    // The tenant-admin SSO config plane (sso-and-scim.md section 3): set the OIDC
+    // config and claim routing domains, over the active tenant (/api/v1/tenant/sso)
+    // and gated by RequirePermission(settings:manage).
+    app.MapSsoAdminEndpoints();
     // The tenant-admin control plane (member/invitation management, settings,
     // ownership, soft-delete, seats), all over the active tenant (/api/v1/tenant).
     app.MapTenantAdminEndpoints();
